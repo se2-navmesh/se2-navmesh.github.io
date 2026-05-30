@@ -1,0 +1,45 @@
+{
+  "id": "00114-hard",
+  "name": "00114-Coer9RdivP7, hard query",
+  "meshPreview": "local_planning_surface.json",
+  "navmeshOverlay": "navmesh_overlay.json",
+  "sourceMesh": "../../../../../mesh/00114-Coer9RdivP7.obj",
+  "yawLayers": 40,
+  "yawLayerStepRad": 0.1570796327,
+  "agent": {
+    "length": 0.93,
+    "width": 0.53,
+    "height": 0.89,
+    "maxClimb": 0.25,
+    "maxSlopeDeg": 30
+  },
+  "start": {
+    "x": -0.522382,
+    "y": 6.268153,
+    "z": 0.035301,
+    "layer": 31
+  },
+  "goal": {
+    "x": -3.886955,
+    "y": 3.667182,
+    "z": 0.02977,
+    "layer": 21
+  },
+  "paths": {
+    "configuredQueryDraft": [
+      {"x": -0.522382, "y": 6.268153, "z": 0.035301, "layer": 31},
+      {"x": -0.95, "y": 5.96, "z": 0.034, "layer": 31},
+      {"x": -1.48, "y": 5.58, "z": 0.033, "layer": 29},
+      {"x": -2.07, "y": 5.04, "z": 0.032, "layer": 27},
+      {"x": -2.75, "y": 4.45, "z": 0.031, "layer": 24},
+      {"x": -3.34, "y": 4.02, "z": 0.03, "layer": 22},
+      {"x": -3.886955, "y": 3.667182, "z": 0.02977, "layer": 21}
+    ]
+  },
+  "notes": [
+    "Start and goal are loaded from se2_navmesh_ros_testing/config/00114-Coer9RdivP7_start_goal_hard.yaml.",
+    "The visible route is a draft visualization scaffold until the planner JSON exporter is enabled.",
+    "The mesh preview is a local filtered planning-surface crop, not the full textured scene mesh.",
+    "The navmesh overlay follows the ROS visualization colors; replace this scaffold with exported Detour polygons for final results."
+  ]
+}

@@ -1,0 +1,393 @@
+body {
+  font-family: 'Noto Sans', sans-serif;
+  overflow-x: hidden;
+}
+
+code {
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #283548;
+  font-size: 0.95em;
+}
+
+.navbar-menu .navbar-start {
+  flex-grow: 1;
+  justify-content: center;
+}
+
+.publication-title {
+  font-family: 'Google Sans', sans-serif;
+}
+
+.publication-authors {
+  font-family: 'Google Sans', sans-serif;
+}
+
+.publication-venue {
+  color: #555;
+  margin-top: 0.35rem;
+}
+
+.author-block {
+  display: inline-block;
+}
+
+.publication-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 4px;
+  max-width: 100%;
+}
+
+.link-block a {
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
+
+.button.is-disabled {
+  pointer-events: none;
+  opacity: 0.58;
+}
+
+.contribution-card,
+.problem-card,
+.result-card {
+  height: 100%;
+  border: 1px solid #e5eaf2;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+}
+
+.contribution-card p,
+.problem-card p,
+.result-card p {
+  color: #667085;
+}
+
+.contribution-card .title,
+.problem-card .title,
+.result-card .title {
+  color: #2f3a4a;
+}
+
+.section {
+  padding-top: 2.5rem;
+  padding-bottom: 2.5rem;
+}
+
+.teaser .hero-body {
+  padding-top: 0;
+  padding-bottom: 2rem;
+}
+
+.teaser-image,
+.paper-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.teaser-image {
+  max-height: 560px;
+  object-fit: contain;
+}
+
+.paper-figure {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.figure-caption {
+  margin-top: 0.75rem;
+  color: #667085;
+  font-size: 0.95rem;
+}
+
+.method-figures {
+  margin-top: 1.5rem;
+}
+
+.method-story {
+  margin-top: 1.5rem;
+}
+
+.video-placeholder {
+  display: flex;
+  min-height: 230px;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 1.5rem;
+  border: 1px dashed #bcc8d8;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.05), rgba(31, 138, 112, 0.06)),
+    #f8fafc;
+  color: #667085;
+  text-align: center;
+}
+
+.video-placeholder .icon {
+  color: #2f3a4a;
+}
+
+.video-placeholder .title {
+  margin-bottom: 0;
+  color: #2f3a4a;
+}
+
+.problem-cards {
+  margin-top: 1.25rem;
+}
+
+.result-card {
+  text-align: center;
+}
+
+.result-number {
+  margin-bottom: 0.35rem;
+  color: #13866f !important;
+  font-family: 'Google Sans', sans-serif;
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.explorer-intro {
+  max-width: 860px;
+  margin: 0 auto 1.25rem;
+}
+
+.viewer-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 640px;
+  border: 1px solid #d9e2ef;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0f172a;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
+}
+
+.viewer-canvas-wrap {
+  position: relative;
+  min-height: 640px;
+}
+
+#viewer {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 640px;
+  background: #0f172a;
+  cursor: grab;
+}
+
+#viewer:active {
+  cursor: grabbing;
+}
+
+.viewer-help {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  max-width: calc(100% - 28px);
+  padding: 0.45rem 0.65rem;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.78);
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 0.82rem;
+}
+
+.viewer-controls {
+  padding: 1.25rem;
+  border-left: 1px solid #d9e2ef;
+  background: #f8fafc;
+}
+
+.viewer-stats {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 1.1rem;
+  color: #667085;
+  font-size: 0.86rem;
+}
+
+.viewer-stats div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.viewer-stats strong {
+  color: #1f2937;
+}
+
+.viewer-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: #1f2937;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.viewer-toggles {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  color: #344054;
+  font-size: 0.92rem;
+}
+
+.viewer-toggles input {
+  margin-right: 0.4rem;
+  accent-color: #13866f;
+}
+
+.viewer-buttons {
+  margin-bottom: 1rem;
+}
+
+.viewer-legend {
+  display: grid;
+  gap: 0.42rem;
+  padding: 1rem 0;
+  border-top: 1px solid #d9e2ef;
+  border-bottom: 1px solid #d9e2ef;
+  color: #667085;
+  font-size: 0.86rem;
+}
+
+.legend-line {
+  display: inline-block;
+  width: 24px;
+  height: 4px;
+  margin-right: 0.45rem;
+  border-radius: 99px;
+  vertical-align: middle;
+}
+
+.legend-line.start {
+  background: #22a06b;
+}
+
+.legend-line.path {
+  background: #ef5b45;
+}
+
+.legend-line.search {
+  background: #2f6fed;
+}
+
+.legend-line.navmesh {
+  background: rgba(166, 220, 253, 0.9);
+}
+
+.legend-line.updated {
+  background: rgba(182, 255, 116, 0.9);
+}
+
+.legend-line.restricted {
+  background: rgba(255, 214, 92, 0.9);
+}
+
+.legend-line.mesh {
+  background: #b7c4d8;
+}
+
+.viewer-note {
+  margin-top: 1rem;
+  color: #667085;
+  font-size: 0.86rem;
+}
+
+.bibtex {
+  overflow-x: auto;
+  padding: 1.1rem;
+  border-radius: 8px;
+  background: #111827;
+  color: #d1d5db;
+  font-size: 0.86rem;
+}
+
+@media (max-width: 900px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .container,
+  .container.is-max-desktop,
+  .container.is-max-widescreen {
+    width: calc(100vw - 32px) !important;
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  .columns {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .column {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .publication-title {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    font-size: 1.68rem !important;
+    line-height: 1.08;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .publication-links {
+    gap: 0.45rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .publication-links .button {
+    max-width: 100%;
+    white-space: normal;
+    font-size: 0.92rem;
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+
+  .publication-links .link-block {
+    max-width: 100%;
+  }
+
+  .content.has-text-justified {
+    text-align: left !important;
+  }
+
+  .teaser .subtitle {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .viewer-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .viewer-controls {
+    border-left: 0;
+    border-top: 1px solid #d9e2ef;
+  }
+
+  .viewer-canvas-wrap,
+  #viewer {
+    min-height: 460px;
+  }
+}
