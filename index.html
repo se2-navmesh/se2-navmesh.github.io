@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="description" content="SE(2) Navigation Mesh">
+  <meta name="description" content="SE(2) Navigation Mesh: a yaw-aware navigation mesh for global planning with non-circular ground robots.">
   <meta name="keywords" content="SE(2), Navigation Mesh, Path Planning, Mobile Robotics, Legged Robots">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SE(2) Navigation Mesh</title>
@@ -14,8 +14,32 @@
   <link rel="stylesheet" href="./static/css/index.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text x='50' y='50' font-size='70' text-anchor='middle' dominant-baseline='central'>SE</text></svg>">
 
+  <!-- MathJax -->
+  <script>
+    MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']]
+      },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
+  <!-- Three.js (ES modules) for the interactive explorer -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
   <script defer src="./static/js/fontawesome.all.min.js"></script>
-  <script defer src="./static/js/app.js"></script>
+  <script defer src="./static/js/interactives.js"></script>
+  <script type="module" src="./static/js/explorer.js"></script>
 </head>
 <body>
 
@@ -34,7 +58,7 @@
       </a>
       <a class="navbar-item" href="#abstract">Abstract</a>
       <a class="navbar-item" href="#videos">Videos</a>
-      <a class="navbar-item" href="#motivation">Motivation</a>
+      <a class="navbar-item" href="#why">Why Yaw?</a>
       <a class="navbar-item" href="#method">Method</a>
       <a class="navbar-item" href="#explorer">Explorer</a>
       <a class="navbar-item" href="#results">Results</a>
@@ -70,6 +94,12 @@
                 </a>
               </span>
               <span class="link-block">
+                <a href="#videos" class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon"><i class="fab fa-youtube"></i></span>
+                  <span>Video</span>
+                </a>
+              </span>
+              <span class="link-block">
                 <a href="#explorer" class="external-link button is-normal is-rounded is-dark">
                   <span class="icon"><i class="fas fa-cube"></i></span>
                   <span>Explorer</span>
@@ -78,13 +108,7 @@
               <span class="link-block">
                 <a class="external-link button is-normal is-rounded is-dark is-disabled">
                   <span class="icon"><i class="fab fa-github"></i></span>
-                  <span>Code</span>
-                </a>
-              </span>
-              <span class="link-block">
-                <a href="#videos" class="external-link button is-normal is-rounded is-dark">
-                  <span class="icon"><i class="fab fa-youtube"></i></span>
-                  <span>Video</span>
+                  <span>Code (soon)</span>
                 </a>
               </span>
             </div>
@@ -98,10 +122,10 @@
 <section class="hero teaser">
   <div class="container is-max-desktop">
     <div class="hero-body">
-      <img class="teaser-image" src="./static/images/se2_navmesh.png" width="4646" height="3899" alt="SE(2) NavMesh real robot navigation examples">
+      <img class="teaser-image" src="./static/images/se2_navmesh_web.jpg" alt="SE(2) NavMesh real robot navigation examples">
       <h2 class="subtitle has-text-centered">
-        SE(2) NavMesh represents yaw-dependent traversability for non-circular ground robots in narrow,
-        multi-level, and overhanging environments.
+        SE(2) NavMesh represents <b>yaw-dependent traversability</b> for non-circular ground robots in narrow,
+        multi-level, and overhanging environments &mdash; and plans paths that respect robot heading.
       </h2>
     </div>
   </div>
@@ -111,37 +135,46 @@
   <div class="container is-max-desktop">
     <div class="columns is-variable is-4 contribution-cards">
       <div class="column">
-        <div class="box has-text-centered contribution-card">
-          <span class="icon is-large has-text-info">
-            <i class="fas fa-layer-group fa-2x"></i>
-          </span>
-          <p class="title is-5 mt-3">Yaw-Aware Representation</p>
-          <p class="is-size-6">
-            SE(2) NavMesh lifts traversable polygons into yaw-specific layers, so narrow passages and overhangs remain represented when only certain headings fit.
-          </p>
-        </div>
+        <a href="#why" class="contribution-card-link">
+          <div class="box has-text-centered contribution-card">
+            <span class="icon is-large has-text-info">
+              <i class="fas fa-layer-group fa-2x"></i>
+            </span>
+            <p class="title is-5 mt-3">Yaw-Aware Representation</p>
+            <p class="is-size-6">
+              Footprint masks lift traversable polygons into yaw-specific layers, so narrow passages and
+              overhangs are preserved whenever <em>some</em> heading fits &mdash; <b>over 50% more traversable area</b>.
+            </p>
+          </div>
+        </a>
       </div>
       <div class="column">
-        <div class="box has-text-centered contribution-card">
-          <span class="icon is-large has-text-success">
-            <i class="fas fa-route fa-2x"></i>
-          </span>
-          <p class="title is-5 mt-3">ASA Pathfinding</p>
-          <p class="is-size-6">
-            A*-String Pulling-A* plans through the layered mesh, then refines the position and heading trajectory for executable robot motion.
-          </p>
-        </div>
+        <a href="#method-asa" class="contribution-card-link">
+          <div class="box has-text-centered contribution-card">
+            <span class="icon is-large has-text-success">
+              <i class="fas fa-route fa-2x"></i>
+            </span>
+            <p class="title is-5 mt-3">ASA Pathfinding</p>
+            <p class="is-size-6">
+              A&thinsp;*&ndash;String&nbsp;Pulling&ndash;A&thinsp;* plans over the layered mesh and refines both
+              position and heading, beating sampling-based planners in constrained scenes.
+            </p>
+          </div>
+        </a>
       </div>
       <div class="column">
-        <div class="box has-text-centered contribution-card">
-          <span class="icon is-large has-text-warning">
-            <i class="fas fa-sync-alt fa-2x"></i>
-          </span>
-          <p class="title is-5 mt-3">Online Updates</p>
-          <p class="is-size-6">
-            Local geometry updates allow the representation to be maintained from streaming point clouds during concurrent map reconstruction.
-          </p>
-        </div>
+        <a href="#method-online" class="contribution-card-link">
+          <div class="box has-text-centered contribution-card">
+            <span class="icon is-large has-text-warning">
+              <i class="fas fa-sync-alt fa-2x"></i>
+            </span>
+            <p class="title is-5 mt-3">Online Updates</p>
+            <p class="is-size-6">
+              Local slab updates rebuild only the changed geometry from streaming point clouds, sustaining a
+              <b>4&nbsp;Hz</b> update rate fully onboard.
+            </p>
+          </div>
+        </a>
       </div>
     </div>
   </div>
@@ -154,19 +187,22 @@
         <h2 class="title is-3">Abstract</h2>
         <div class="content has-text-justified">
           <p>
-            Global navigation for ground robots in complex multi-level environments requires
-            representations that accurately capture traversable regions while enabling efficient
-            path planning. Point clouds and volumetric maps lack explicit surface structure, while
-            pathfinding directly on dense triangle meshes is computationally expensive. Classical
-            navigation meshes reduce this complexity, but assume yaw-invariant traversability and
-            are therefore unsuitable for non-circular robots in constrained spaces.
+            Global navigation for ground robots in complex multi-level environments requires representations
+            that accurately capture traversable regions while enabling efficient path planning. Point clouds
+            and volumetric maps lack explicit surface structure, while pathfinding directly on dense triangle
+            meshes is computationally expensive. Classical navigation meshes reduce this complexity, but assume
+            yaw-invariant traversability and are therefore unsuitable for non-circular robots in constrained spaces.
           </p>
           <p>
-            We propose the SE(2) Navigation Mesh, a polygonal representation that encodes
-            yaw-dependent traversability. Our method evaluates traversability using footprint masks,
-            constructs a graph over yaw-specific layers with translational and rotational connectivity,
-            and plans paths using an A*-String Pulling-A* strategy that optimizes robot position and
-            heading.
+            We propose the <b>SE(2) Navigation Mesh</b>, a polygonal representation that encodes yaw-dependent
+            traversability. Our method evaluates traversability using footprint masks, constructs a graph over
+            yaw-specific layers with translational and rotational connectivity, and plans paths using an
+            <b>A&thinsp;*&ndash;String&nbsp;Pulling&ndash;A&thinsp;* (ASA)</b> strategy that hierarchically
+            optimizes robot position and heading. An online variant incrementally updates the mesh from streaming
+            point clouds during concurrent map reconstruction. In simulation, SE(2) NavMesh captures over 50% more
+            traversable area than classical NavMeshes; ASA outperforms sampling-based planners in constrained
+            environments; and the online method maintains real-time performance. Real-world experiments on a legged
+            robot validate online generation and navigation across multiple environments.
           </p>
         </div>
       </div>
@@ -177,81 +213,93 @@
 <section id="videos" class="section">
   <div class="container is-max-desktop">
     <h2 class="title is-3 has-text-centered">Videos</h2>
-    <div class="columns is-variable is-4">
-      <div class="column">
-        <div class="video-placeholder">
-          <span class="icon is-large"><i class="fas fa-play-circle fa-3x"></i></span>
-          <p class="title is-5">Overview Video</p>
-          <p>Pipeline, yaw layers, and ASA planning.</p>
-          <span class="tag is-light">Placeholder</span>
-        </div>
+    <p class="content has-text-centered video-intro">
+      Overview, planning demonstrations, and real-world legged-robot experiments.
+    </p>
+    <div class="seg-track" role="tablist" aria-label="Video categories">
+      <div class="seg-slider" id="seg-slider"></div>
+      <button class="seg-btn is-active" data-video-tab="overview" aria-selected="true">Overview</button>
+      <button class="seg-btn" data-video-tab="realworld">Real-World Navigation</button>
+      <button class="seg-btn" data-video-tab="online">Online Generation</button>
+    </div>
+
+    <div class="video-panel" data-video-panel="overview">
+      <div class="video-frame">
+        <video controls playsinline preload="none" poster="./static/images/se2_navmesh_web.jpg">
+          <source src="./static/videos/overview.mp4" type="video/mp4">
+        </video>
       </div>
-      <div class="column">
-        <div class="video-placeholder">
-          <span class="icon is-large"><i class="fas fa-play-circle fa-3x"></i></span>
-          <p class="title is-5">Path Planning Demo</p>
-          <p>Start-goal queries with yaw-dependent constraints.</p>
-          <span class="tag is-light">Placeholder</span>
-        </div>
+      <p class="figure-caption">Method overview: yaw layers, footprint masks, and ASA planning.</p>
+    </div>
+
+    <div class="video-panel is-hidden" data-video-panel="realworld">
+      <div class="video-frame">
+        <video controls playsinline preload="none" poster="./static/images/outdoor_task.jpg">
+          <source src="./static/videos/real_world.mp4" type="video/mp4">
+        </video>
       </div>
-      <div class="column">
-        <div class="video-placeholder">
-          <span class="icon is-large"><i class="fas fa-play-circle fa-3x"></i></span>
-          <p class="title is-5">Robot Experiments</p>
-          <p>Real-world navigation through constrained and multi-level scenes.</p>
-          <span class="tag is-light">Placeholder</span>
-        </div>
+      <p class="figure-caption">Real-world navigation across multi-level, narrow, and overhanging scenes.</p>
+    </div>
+
+    <div class="video-panel is-hidden" data-video-panel="online">
+      <div class="video-frame">
+        <video controls playsinline preload="none" poster="./static/images/online_update_experiment.jpg">
+          <source src="./static/videos/online_generation.mp4" type="video/mp4">
+        </video>
       </div>
+      <p class="figure-caption">Online SE(2) NavMesh generation from onboard point clouds during a walk.</p>
     </div>
   </div>
 </section>
 
-<section id="motivation" class="section">
+<section id="why" class="section">
   <div class="container is-max-desktop">
-    <h2 class="title is-3 has-text-centered">Why SE(2) NavMesh?</h2>
+    <h2 class="title is-3 has-text-centered">Why Does Yaw Matter?</h2>
     <div class="columns is-centered">
       <div class="column is-four-fifths">
         <div class="content has-text-justified">
           <p>
-            Classical navigation meshes are effective because they replace dense geometry with connected
-            convex polygons. However, they usually assume that a robot's traversability is independent of yaw.
-            This is reasonable for circular agents, but too coarse for legged or rectangular ground robots.
+            Classical navigation meshes are efficient because they replace dense geometry with connected convex
+            polygons. But they assume a robot's traversability is <em>independent of yaw</em> &mdash; reasonable for
+            a circular agent, too coarse for a rectangular or legged robot. In a narrow doorway, beside an overhang,
+            or on a staircase, the same position can be feasible for one heading and blocked for another.
           </p>
           <p>
-            In narrow corridors, around overhanging obstacles, or on multi-level structures, the same position can
-            be feasible for one robot heading and infeasible for another. SE(2) NavMesh keeps the compact polygonal
-            structure of a NavMesh while explicitly encoding which yaw channels are valid in each region.
+            Try it below: a robot with the footprint of an <b>ANYmal</b> (0.93&thinsp;m &times; 0.53&thinsp;m) at the
+            center of a passage. Rotate it and watch which headings actually fit. A yaw-invariant NavMesh would
+            simply discard this whole region; SE(2) NavMesh keeps it as a <em>restricted</em> region with the exact
+            set of headings that work.
           </p>
         </div>
       </div>
     </div>
 
-    <div class="columns is-variable is-4 problem-cards">
-      <div class="column">
-        <div class="box problem-card">
-          <h3 class="title is-5">Dense Meshes Are Expensive</h3>
-          <p>
-            Direct pathfinding on reconstructed triangle meshes preserves geometry, but the graph can be too large
-            for efficient global planning.
-          </p>
+    <!-- Interactive yaw-feasibility demo -->
+    <div class="box demo-box" id="yaw-demo">
+      <div class="columns is-vcentered">
+        <div class="column is-three-fifths yaw-stage-col">
+          <svg id="yaw-svg" viewBox="0 0 460 320" xmlns="http://www.w3.org/2000/svg" aria-label="Robot rotating in a narrow passage"></svg>
         </div>
-      </div>
-      <div class="column">
-        <div class="box problem-card">
-          <h3 class="title is-5">2D Maps Lose Structure</h3>
-          <p>
-            Grid and elevation maps simplify planning, but struggle with overlapping floors, stairs, and complex
-            traversable surfaces.
+        <div class="column is-two-fifths">
+          <p class="demo-readout">
+            Heading <span id="yaw-deg" class="demo-readout-num">0&deg;</span>
+            <span id="yaw-fit-badge" class="fit-badge fit-yes">FITS</span>
           </p>
-        </div>
-      </div>
-      <div class="column">
-        <div class="box problem-card">
-          <h3 class="title is-5">Yaw Matters</h3>
-          <p>
-            Non-circular robots can pass through constrained spaces only when aligned correctly, so heading must be
-            part of the representation.
-          </p>
+          <label class="demo-label" for="yaw-slider">Robot heading $\psi$</label>
+          <input type="range" id="yaw-slider" min="0" max="39" value="0" step="1">
+          <div class="demo-slider-ticks"><span>0&deg;</span><span>90&deg;</span><span>180&deg;</span><span>270&deg;</span><span>360&deg;</span></div>
+
+          <label class="demo-label mt-3" for="passage-slider">Passage width <span id="passage-val">0.80 m</span></label>
+          <input type="range" id="passage-slider" min="55" max="160" value="80" step="1">
+          <div class="demo-slider-ticks"><span>0.55 m</span><span>1.60 m</span></div>
+
+          <div class="yaw-dial-wrap">
+            <svg id="yaw-dial" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-label="Feasible heading dial"></svg>
+            <div class="yaw-dial-caption">
+              Feasible at <strong id="yaw-feasible-count">&ndash;</strong> of 40 headings.
+              <span class="yaw-region-tag" id="yaw-region-tag">restricted region</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -262,127 +310,230 @@
   <div class="container is-max-desktop">
     <h2 class="title is-3 has-text-centered">System Overview</h2>
     <figure class="image paper-figure">
-      <img src="./static/images/pipeline.png" width="2600" height="800" alt="SE(2) NavMesh system pipeline">
+      <img src="./static/images/pipeline.png" alt="SE(2) NavMesh system pipeline">
     </figure>
     <p class="content has-text-centered figure-caption">
-      Offline construction builds the representation from a pre-built map; online construction updates it from streaming point clouds.
+      Offline construction builds the representation from a pre-built map; online construction updates it from
+      streaming point clouds. Map geometry is processed with robot-specific traversal constraints, then ASA
+      pathfinding runs on the generated SE(2) NavMesh.
     </p>
   </div>
 </section>
 
 <section id="method" class="section">
   <div class="container is-max-desktop">
-    <h2 class="title is-3 has-text-centered">Method Overview</h2>
+    <h2 class="title is-3 has-text-centered">Method</h2>
+
+    <!-- Footprint masks + yaw channels -->
     <div class="columns is-centered">
-      <div class="column">
-        <h3 class="title is-4">Footprint Masks</h3>
-        <div class="content">
+      <div class="column is-full-width">
+        <h3 class="title is-4" id="method-footprint">Footprint Masks &amp; Yaw Channels</h3>
+        <div class="content has-text-justified">
           <p>
-            The robot footprint is rasterized over yaw channels. Continuous-yaw masks make safe
-            rotations explicit and preserve constrained regions that are feasible only under specific headings.
+            We approximate the robot as a cuboid of length $l_\mathrm{robot}$, width $w_\mathrm{robot}$, and height
+            $h_\mathrm{robot}$, which is far tighter than a circumscribed cylinder for non-circular robots. The
+            continuous yaw interval $[0, 2\pi)$ is discretized into $N_\Psi$ headings,
+            $\Psi = \{\psi_1, \dots, \psi_{N_\Psi}\}$, each defining a <em>yaw channel</em>. For a position
+            $\mathbf{p}$, channel $i$ is feasible ($C_i(\mathbf{p}) = 1$) if the robot can occupy $\mathbf{p}$ with
+            heading $\psi_i$.
+          </p>
+          <p>
+            Feasibility is evaluated with a <b>footprint mask</b>: a binary occupancy grid of the robot footprint.
+            We use <em>continuous-yaw</em> masks &mdash; the union swept over a small yaw interval &mdash; so that a
+            position feasible under adjacent channels guarantees a safe in-place rotation between those headings.
           </p>
         </div>
-      </div>
-      <div class="column">
-        <h3 class="title is-4">Yaw Layers</h3>
-        <div class="content">
-          <p>
-            Traversable polygons are lifted into yaw-specific layers. Translational edges connect
-            neighboring polygons within a layer, while rotational edges connect feasible yaw changes.
-          </p>
-        </div>
-      </div>
-      <div class="column">
-        <h3 class="title is-4">ASA Pathfinding</h3>
-        <div class="content">
-          <p>
-            A graph search, string-pulling stage, and yaw-aware refinement provide paths that respect
-            the robot footprint and produce smooth position-heading motion.
-          </p>
+        <div class="columns is-centered method-figures">
+          <div class="column is-one-quarter">
+            <figure class="image paper-figure">
+              <img src="./static/images/cuboid_approximation.png" alt="Cuboid robot approximation">
+            </figure>
+            <p class="figure-caption">Cuboid approximation.</p>
+          </div>
+          <div class="column">
+            <figure class="image paper-figure">
+              <img src="./static/images/footprint_mask.png" alt="Footprint mask illustration">
+            </figure>
+            <p class="figure-caption">Continuous-yaw footprint masks rasterized per heading.</p>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="columns is-centered method-figures">
-      <div class="column">
+    <!-- Yaw layers + connectivity -->
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h3 class="title is-4" id="method-layers">Yaw Layers &amp; Connectivity</h3>
+        <div class="content has-text-justified">
+          <p>
+            Each traversable region $\mathcal{R}_j$ has a feasible yaw-channel set $\mathcal{I}(\mathcal{R}_j)$.
+            A region is <span class="tag-safe">safe</span> if every heading works
+            ($\mathcal{I}(\mathcal{R}_j) = \mathcal{I}_\Psi$) and <span class="tag-restricted">restricted</span>
+            if only a subset does ($\emptyset \subsetneq \mathcal{I}(\mathcal{R}_j) \subsetneq \mathcal{I}_\Psi$).
+            Lifting regions into per-channel layers $\mathcal{L}_i$ gives the SE(2) graph, with two edge types:
+          </p>
+          <ul>
+            <li><b>Translational edges</b> connect adjacent regions <em>within</em> a layer (motion at fixed yaw).</li>
+            <li><b>Rotational edges</b> connect a region's copies across <em>adjacent</em> layers (in-place rotation).</li>
+          </ul>
+        </div>
         <figure class="image paper-figure">
-          <img src="./static/images/footprint_mask.png" width="8105" height="2306" alt="Footprint mask illustration">
+          <img src="./static/images/se2_graph.png" alt="SE(2) graph over yaw-specific layers">
         </figure>
-      </div>
-      <div class="column">
-        <figure class="image paper-figure">
-          <img src="./static/images/se2_graph.png" width="6553" height="1664" alt="SE(2) graph and yaw layers">
-        </figure>
+        <p class="figure-caption">
+          Layer-specific regions and the navigation graph: vertices on polygon edges connect within and across yaw layers.
+        </p>
+
+        <div class="algo-box mt-5">
+          <div class="algo-header">Algorithm: Voxel Classification (per terrain voxel $v$)</div>
+          <div class="algo-inputs">
+            <b>Input:</b> distance-to-invalid $d = D(v)$, footprint inradius $r_\mathrm{in}$, circumradius
+            $r_\mathrm{circ}$, masks $\{M_i\}$<br>
+            <b>Output:</b> class $\in$ {<span class="algo-kw">Inaccessible</span>,
+            <span class="algo-kw">Restricted</span>, <span class="algo-kw">Safe</span>} and feasible set
+            $\mathcal{I}(v)$
+          </div>
+          <div class="algo-body">
+            <div class="algo-step"><b>if</b> $d &lt; r_\mathrm{in}$: &nbsp; class $\gets$ <span class="algo-kw">Inaccessible</span> &nbsp;<span class="algo-comment">too close to obstacles for any heading</span></div>
+            <div class="algo-step"><b>else if</b> $d \ge r_\mathrm{circ}$: &nbsp; class $\gets$ <span class="algo-kw">Safe</span>, &nbsp; $\mathcal{I}(v) \gets \mathcal{I}_\Psi$ &nbsp;<span class="algo-comment">all headings fit</span></div>
+            <div class="algo-step"><b>else</b> &nbsp;<span class="algo-comment">intermediate band &mdash; check each heading</span></div>
+            <div class="algo-block">
+              <div class="algo-step"><b>for each</b> channel $i \in \mathcal{I}_\Psi$: &nbsp;<b>if</b> mask $M_i$ at $v$ covers only walkable voxels: $\mathcal{I}(v) \gets \mathcal{I}(v) \cup \{i\}$</div>
+              <div class="algo-step">class $\gets$ <span class="algo-kw">Restricted</span> <b>if</b> $\mathcal{I}(v) \neq \emptyset$ <b>else</b> <span class="algo-kw">Inaccessible</span></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="content has-text-justified method-story">
-      <p>
-        The pipeline begins by voxelizing the input mesh and annotating walkable terrain according to the robot's
-        height, slope, step, and footprint constraints. Footprint masks then evaluate yaw feasibility at candidate
-        positions. Regions that are feasible for every yaw channel become safe traversable regions, while regions
-        feasible only for selected channels become restricted regions.
-      </p>
-      <p>
-        Planning operates over this layered representation. Translation edges move the robot within a fixed yaw
-        layer, and rotation edges connect compatible yaw layers in the same region. ASA pathfinding first searches
-        this graph, then straightens the polygon corridor and refines yaw transitions to produce smooth paths.
-      </p>
+    <!-- ASA pathfinding + interactive stepper -->
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h3 class="title is-4" id="method-asa">ASA Pathfinding</h3>
+        <div class="content has-text-justified">
+          <p>
+            Planning on the SE(2) NavMesh runs in three stages, <b>A&thinsp;*&ndash;String&nbsp;Pulling&ndash;A&thinsp;*</b>.
+            Step through them below to see how the path is first found, then geometrically straightened, then
+            re-optimized in yaw.
+          </p>
+        </div>
+
+        <!-- Interactive ASA stepper -->
+        <div class="box demo-box" id="asa-demo">
+          <div class="asa-stepper" role="tablist" aria-label="ASA stages">
+            <button class="asa-step-btn is-active" data-asa-stage="0">
+              <span class="asa-step-num">1</span> Initial A&thinsp;* Search
+            </button>
+            <span class="asa-arrow">&rarr;</span>
+            <button class="asa-step-btn" data-asa-stage="1">
+              <span class="asa-step-num">2</span> String Pulling
+            </button>
+            <span class="asa-arrow">&rarr;</span>
+            <button class="asa-step-btn" data-asa-stage="2">
+              <span class="asa-step-num">3</span> Yaw Refinement
+            </button>
+          </div>
+          <div class="columns is-vcentered mt-2">
+            <div class="column is-three-fifths">
+              <svg id="asa-svg" viewBox="0 0 480 280" xmlns="http://www.w3.org/2000/svg" aria-label="ASA pathfinding stages"></svg>
+            </div>
+            <div class="column is-two-fifths">
+              <div id="asa-info" class="demo-info-box"></div>
+              <div class="asa-stats">
+                <div><span>Path length</span><strong id="asa-len">&ndash;</strong></div>
+                <div><span>Path cost (time)</span><strong id="asa-cost">&ndash;</strong></div>
+              </div>
+              <div class="buttons are-small mt-2">
+                <button id="asa-play" class="button is-dark" type="button">Auto-play</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <figure class="image paper-figure mt-4">
+          <img src="./static/images/asa_pathfinding.png" alt="ASA pathfinding stages from the paper">
+        </figure>
+        <p class="figure-caption">
+          The three ASA stages as shown in the paper. String pulling shortens the path but can mismatch yaw;
+          the final A&thinsp;* refinement restores yaw consistency, yielding lower cost than the initial path.
+        </p>
+      </div>
+    </div>
+
+    <!-- Online generation -->
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h3 class="title is-4" id="method-online">Online Generation</h3>
+        <div class="content has-text-justified">
+          <p>
+            For onboard deployment, the SE(2) NavMesh is built incrementally as Voxblox reconstructs the
+            environment from streaming point clouds. Tiles are split vertically into <b>slabs</b>; when geometry in
+            a slab changes, only slabs inside a small 3D update window are rebuilt and merged back into the global
+            mesh. This keeps updates local and bounded as the map grows.
+          </p>
+        </div>
+        <figure class="image paper-figure">
+          <img src="./static/images/online_update_experiment.jpg" alt="Online SE(2) NavMesh generation in a garden">
+        </figure>
+        <p class="figure-caption">
+          Online generation in a garden: only slabs affected by new geometry (green) are updated; unaffected slabs
+          (blue) are retained. Right: final reconstructed geometry and SE(2) NavMesh.
+        </p>
+      </div>
     </div>
   </div>
 </section>
 
 <section id="explorer" class="section">
   <div class="container is-max-widescreen">
-    <h2 class="title is-3 has-text-centered">Interactive Path Planning Preview</h2>
+    <h2 class="title is-3 has-text-centered">Interactive Path Planning Explorer</h2>
     <div class="content has-text-centered explorer-intro">
       <p>
-        This prototype uses the <code>00114-Coer9RdivP7</code> hard query. The raw planning surface is shown
-        as context, with a ROS-exported SE(2) NavMesh overlay and planner-generated ASA route states.
+        A real ROS-exported SE(2) NavMesh on the hard query <code>00114-Coer9RdivP7</code>. The planning surface
+        is shown for context, with the full NavMesh and the planner's search polygons overlaid. Drag to orbit,
+        scroll to zoom, and scrub the yaw layer or play the route.
       </p>
     </div>
 
     <div class="viewer-panel">
       <div class="viewer-canvas-wrap">
         <canvas id="viewer" aria-label="Interactive SE(2) NavMesh mesh and path preview"></canvas>
-        <div class="viewer-help">Drag to orbit/pan. Scroll to zoom. Use the controls to inspect yaw layers and playback.</div>
+        <div class="viewer-help">Drag to orbit &middot; right-drag to pan &middot; scroll to zoom</div>
+        <div id="viewer-loading" class="viewer-loading">Loading 3D scene&hellip;</div>
       </div>
       <aside class="viewer-controls">
-        <h3 class="title is-5" id="case-name">Loading scene...</h3>
+        <h3 class="title is-5" id="case-name">Staircase &mdash; hard query</h3>
         <div class="viewer-stats">
-          <div><span>Surface triangles</span><strong id="tri-count">-</strong></div>
-          <div><span>Route states</span><strong id="path-count">-</strong></div>
-          <div><span>Yaw layer</span><strong id="layer-value">31</strong></div>
-          <div><span>Yaw angle</span><strong id="yaw-value">0.00 rad</strong></div>
+          <div><span>Surface triangles</span><strong id="stat-tris">&ndash;</strong></div>
+          <div><span>NavMesh polygons</span><strong id="stat-polys">&ndash;</strong></div>
+          <div><span>Route states</span><strong id="stat-states">&ndash;</strong></div>
+          <div><span>Robot heading</span><strong id="stat-yaw">&ndash;</strong></div>
         </div>
 
-        <label class="viewer-label" for="layer">Yaw Layer</label>
-        <input id="layer" class="slider is-fullwidth is-success" type="range" min="1" max="40" value="31" step="1">
-
-        <div class="viewer-toggles">
-          <label class="checkbox"><input id="toggle-mesh" type="checkbox" checked> Planning surface crop</label>
-          <label class="checkbox"><input id="toggle-navmesh" type="checkbox" checked> SE(2) NavMesh overlay</label>
-          <label class="checkbox"><input id="toggle-path" type="checkbox" checked> Path line</label>
-          <label class="checkbox"><input id="toggle-footprints" type="checkbox" checked> Robot footprint</label>
-          <label class="checkbox"><input id="toggle-search" type="checkbox"> Search preview</label>
-        </div>
+        <label class="viewer-label" for="route">Robot position along route</label>
+        <input id="route" class="slider is-fullwidth is-success" type="range" min="0" max="1000" value="0" step="1">
 
         <div class="buttons are-small viewer-buttons">
-          <button id="play" class="button is-dark" type="button">Play</button>
-          <button id="reset" class="button" type="button">Reset View</button>
+          <button id="play" class="button is-dark" type="button">Play route</button>
+          <button id="reset" class="button" type="button">Reset view</button>
+        </div>
+
+        <div class="viewer-toggles">
+          <label class="checkbox"><input id="toggle-surface" type="checkbox" checked> Mesh surface</label>
+          <label class="checkbox"><input id="toggle-navmesh" type="checkbox" checked> SE(2) NavMesh</label>
+          <label class="checkbox"><input id="toggle-search" type="checkbox" checked> Path search regions</label>
+          <label class="checkbox"><input id="toggle-path" type="checkbox" checked> Planned path</label>
+          <label class="checkbox"><input id="toggle-robot" type="checkbox" checked> Robot footprint</label>
         </div>
 
         <div class="viewer-legend">
-          <div><span class="legend-line start"></span>Start / footprint</div>
-          <div><span class="legend-line path"></span>Path</div>
-          <div><span class="legend-line search"></span>Search preview</div>
-          <div><span class="legend-line navmesh"></span>NavMesh unchanged</div>
-          <div><span class="legend-line updated"></span>Updated navmesh</div>
-          <div><span class="legend-line restricted"></span>Restricted yaw</div>
-          <div><span class="legend-line mesh"></span>Planning surface</div>
+          <div><span class="legend-swatch start"></span>Start &middot; goal</div>
+          <div><span class="legend-swatch path"></span>ASA path</div>
+          <div><span class="legend-swatch navmesh"></span>SE(2) NavMesh</div>
+          <div><span class="legend-swatch used-navmesh"></span>Path search regions</div>
         </div>
 
-        <p id="path-note" class="viewer-note">Loading...</p>
+        <p id="path-note" class="viewer-note">A staircase query climbing ~2.9&thinsp;m across floors. Heading changes as the robot turns onto each flight.</p>
       </aside>
     </div>
   </div>
@@ -390,45 +541,211 @@
 
 <section id="results" class="section">
   <div class="container is-max-desktop">
-    <h2 class="title is-3 has-text-centered">Results Preview</h2>
-    <div class="columns is-variable is-4">
-      <div class="column">
-        <div class="box result-card">
-          <p class="result-number">&gt;50%</p>
-          <h3 class="title is-5">More Traversable Area</h3>
+    <h2 class="title is-3 has-text-centered">Results</h2>
+
+    <!-- Representation quality -->
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h3 class="title is-4">Representation: NavMesh vs. SE(2) NavMesh</h3>
+        <div class="content has-text-justified">
           <p>
-            SE(2) NavMesh recovers yaw-dependent traversable regions that classical NavMeshes discard under
-            yaw-invariant assumptions.
+            Across six HM3D scenes, SE(2) NavMesh captures <b>over 50% more traversable area</b> than the classical
+            NavMesh in every scene, and its restricted regions bridge previously disconnected components. Drag the
+            handle to compare the two on the <em>Store</em> scene &mdash; SE(2) NavMesh keeps the narrow aisles that
+            the yaw-invariant NavMesh discards.
           </p>
         </div>
-      </div>
-      <div class="column">
-        <div class="box result-card">
-          <p class="result-number">ASA</p>
-          <h3 class="title is-5">Efficient Pathfinding</h3>
-          <p>
-            Layered A* with string pulling and yaw refinement produces high-quality paths in constrained scenes.
-          </p>
+
+        <!-- Interactive before/after comparison slider -->
+        <div class="compare-wrap" id="compare-slider">
+          <div class="compare-img-base">
+            <img src="./static/images/compare_navmesh.jpg" alt="Classical NavMesh traversable regions">
+            <span class="compare-tag compare-tag-right">Classical NavMesh</span>
+          </div>
+          <div class="compare-img-top" id="compare-top">
+            <img src="./static/images/compare_se2.jpg" alt="SE(2) NavMesh traversable regions">
+            <span class="compare-tag compare-tag-left">SE(2) NavMesh</span>
+          </div>
+          <div class="compare-handle" id="compare-handle">
+            <div class="compare-handle-line"></div>
+            <div class="compare-handle-circle"><i class="fas fa-arrows-alt-h"></i></div>
+          </div>
+          <input type="range" id="compare-range" min="0" max="100" value="50" aria-label="Comparison slider">
         </div>
-      </div>
-      <div class="column">
-        <div class="box result-card">
-          <p class="result-number">Online</p>
-          <h3 class="title is-5">Real-Time Updates</h3>
-          <p>
-            Local tile updates support online generation from streaming geometry during robot operation.
-          </p>
-        </div>
+        <p class="figure-caption">Traversable regions (blue) in the <em>Store</em> scene. Drag to wipe between methods.</p>
+
+        <figure class="image paper-figure mt-5">
+          <img src="./static/images/offline_generation.jpg" alt="Offline mesh generation across six scenes">
+        </figure>
+        <p class="figure-caption">
+          Six scenes (top: 3D model). Middle row: SE(2) NavMesh traversable regions. Bottom row: classical NavMesh.
+        </p>
+
+        <figure class="image paper-figure mt-4">
+          <img src="./static/images/traversable_regions_all_new.png" alt="Traversable area comparison bar chart">
+        </figure>
+        <p class="figure-caption">
+          Total and largest-connected traversable area per scene &mdash; SE(2) NavMesh dominates the NavMesh everywhere.
+        </p>
       </div>
     </div>
+
+    <!-- Pathfinding benchmark -->
     <div class="columns is-centered">
-      <div class="column is-four-fifths">
-        <div class="content has-text-centered">
+      <div class="column is-full-width">
+        <h3 class="title is-4">Pathfinding Benchmark</h3>
+        <div class="content has-text-justified">
           <p>
-            Additional benchmark plots and robot experiment videos can be placed here once the final anonymous
-            media package is ready.
+            We compare ASA against sampling-based planners (RRT, RRT*, PRM) using both a voxel checker and an
+            SE(2)-NavMesh checker (suffix <code>-SE2NM</code>). On 100 randomly sampled start&ndash;goal pairs in
+            two representative scenes, ASA achieves the highest success rate (SR) and success-weighted inverse path
+            cost (SPC).
           </p>
         </div>
+
+        <div class="content">
+          <div class="barplot-scroll">
+            <div class="barplot-frame">
+              <canvas id="spc-canvas"></canvas>
+            </div>
+          </div>
+          <p class="figure-caption">Success-weighted inverse path cost (SPC, &uarr; better) on randomly sampled tasks.</p>
+        </div>
+
+        <div class="content">
+          <div class="table-container benchmark-table-wrap">
+            <table class="table is-fullwidth benchmark-table">
+              <thead>
+                <tr>
+                  <th>Planner</th>
+                  <th>Gym&nbsp;SR</th>
+                  <th>Gym&nbsp;SPC</th>
+                  <th>Studio&nbsp;SR</th>
+                  <th>Studio&nbsp;SPC</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>ASA (ours)</td>
+                  <td class="cell-best">41%</td>
+                  <td class="cell-best">0.41</td>
+                  <td class="cell-best">98%</td>
+                  <td class="cell-best">0.98</td>
+                </tr>
+                <tr>
+                  <td>RRT-SE2NM</td>
+                  <td class="cell-good">40%</td>
+                  <td class="cell-poor">0.13</td>
+                  <td class="cell-good">97%</td>
+                  <td class="cell-poor">0.29</td>
+                </tr>
+                <tr>
+                  <td>RRT*-SE2NM</td>
+                  <td>32%</td>
+                  <td class="cell-poor">0.18</td>
+                  <td>82%</td>
+                  <td class="cell-poor">0.26</td>
+                </tr>
+                <tr>
+                  <td>PRM-SE2NM</td>
+                  <td class="cell-best">41%</td>
+                  <td class="cell-good">0.27</td>
+                  <td class="cell-good">96%</td>
+                  <td class="cell-good">0.63</td>
+                </tr>
+                <tr>
+                  <td>RRT</td>
+                  <td class="cell-best">41%</td>
+                  <td class="cell-poor">0.13</td>
+                  <td class="cell-good">97%</td>
+                  <td class="cell-poor">0.29</td>
+                </tr>
+                <tr>
+                  <td>RRT*</td>
+                  <td>36%</td>
+                  <td class="cell-poor">0.16</td>
+                  <td>80%</td>
+                  <td class="cell-poor">0.25</td>
+                </tr>
+                <tr>
+                  <td>PRM</td>
+                  <td>36%</td>
+                  <td class="cell-poor">0.15</td>
+                  <td>84%</td>
+                  <td class="cell-good">0.42</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="benchmark-legend">
+            <span class="legend-label">SR and SPC on randomly sampled tasks (higher is better).</span>
+            <span class="legend-item cell-best">Best</span>
+            <span class="legend-item cell-good">Good</span>
+            <span class="legend-item cell-poor">Lower</span>
+          </div>
+        </div>
+
+        <figure class="image paper-figure mt-4">
+          <img src="./static/images/benchmark_task1_task4_vis.jpg" alt="Pathfinding tasks and example solutions">
+        </figure>
+        <p class="figure-caption">
+          Constrained pathfinding tasks (stairs, narrow passages, doorways). ASA produces straighter paths with
+          smoother rotation than sampling-based planners.
+        </p>
+      </div>
+    </div>
+
+    <!-- Real-world -->
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h3 class="title is-4">Real-World Experiments</h3>
+
+        <div class="stat-band">
+          <div class="stat-item">
+            <span class="stat-num">&gt;50%</span>
+            <span class="stat-label">more traversable area vs. classical NavMesh</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num">87%</span>
+            <span class="stat-label">final path cost after ASA refinement</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num">4&nbsp;Hz</span>
+            <span class="stat-label">onboard online update rate (83&thinsp;ms avg)</span>
+          </div>
+        </div>
+
+        <div class="content has-text-justified">
+          <p>
+            We deploy the online pipeline on an ANYmal quadruped with a wrist-mounted ZED&nbsp;X&nbsp;Mini camera,
+            running entirely on an onboard NVIDIA Jetson Orin. Local slab updates sustain 4&nbsp;Hz throughout a
+            walk, whereas global rebuilds fall behind as the map grows. The robot then navigates multi-level,
+            cluttered, narrow, and overhanging real-world scenes using the generated mesh &mdash; including a
+            41&nbsp;m corridor traverse and a 0.8&nbsp;m-wide passage only 0.27&nbsp;m wider than the robot.
+          </p>
+        </div>
+
+        <div class="columns is-variable is-4">
+          <div class="column">
+            <figure class="image paper-figure">
+              <img src="./static/images/outdoor_task.jpg" alt="Outdoor multi-level navigation">
+            </figure>
+            <p class="figure-caption">Outdoor multi-level: ascending stairs to an upper platform.</p>
+          </div>
+          <div class="column">
+            <figure class="image paper-figure">
+              <img src="./static/images/office_task.jpg" alt="Indoor single-level navigation">
+            </figure>
+            <p class="figure-caption">Indoor: narrow corridors, doorways, and cluttered regions.</p>
+          </div>
+        </div>
+
+        <figure class="image paper-figure mt-3">
+          <img src="./static/images/online_update_comparison.png" alt="Local vs global update time comparison">
+        </figure>
+        <p class="figure-caption">
+          Local updates hold the 4&nbsp;Hz target; global updates grow unbounded as the reconstructed map expands.
+        </p>
       </div>
     </div>
   </div>
@@ -449,7 +766,10 @@
 <footer class="footer">
   <div class="container">
     <div class="content has-text-centered">
-      <p>This anonymous project page is self-contained for GitHub Pages deployment.</p>
+      <p>
+        This anonymous project page is self-contained for GitHub Pages deployment. Website template adapted from
+        <a href="https://github.com/nerfies/nerfies.github.io" target="_blank" rel="noopener">Nerfies</a>.
+      </p>
     </div>
   </div>
 </footer>

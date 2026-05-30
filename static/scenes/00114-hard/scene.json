@@ -634,7 +634,7 @@
   "notes": [
     "Start and goal are loaded from se2_navmesh_ros_testing/config/00114-Coer9RdivP7_start_goal_hard.yaml.",
     "The visible route is exported from the SE2 NavMesh planner mission topic, not hand drawn.",
-    "The navmesh overlay is cropped from the se2_navmesh_static TRIANGLE_LIST marker around the hard query.",
+    "The navmesh overlay shows the full se2_navmesh_static TRIANGLE_LIST marker in RViz light blue and the planner-used recast_path_polygons marker in yellow.",
     "The mesh preview was generated with streaming_obj_parser using an upward-surface path-corridor filter; Python Open3D will be used automatically when installed."
   ]
 }

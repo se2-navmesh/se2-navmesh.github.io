@@ -14,7 +14,7 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import yaml
 
@@ -226,22 +226,38 @@ def flat_positions(triangles: Iterable[Triangle]) -> List[float]:
     return values
 
 
-def marker_triangles(marker, bounds: Tuple[Point, Point], z_offset: float = 0.035) -> List[dict]:
+def marker_triangles(
+    marker,
+    bounds: Optional[Tuple[Point, Point]] = None,
+    z_offset: float = 0.035,
+    kind: str = "full",
+) -> List[dict]:
     polygons = []
     for i in range(0, len(marker.points) - 2, 3):
         tri = tuple((marker.points[i + j].x, marker.points[i + j].y, marker.points[i + j].z) for j in range(3))
-        if not in_bounds(triangle_centroid(tri), bounds):
+        if bounds is not None and not in_bounds(triangle_centroid(tri), bounds):
             continue
         if triangle_area_xy(tri) < 1e-5:
             continue
         polygons.append(
             {
                 "id": len(polygons) + 1,
-                "kind": "unchanged",
+                "kind": kind,
                 "vertices": [point_dict(p, z_offset) for p in tri],
             }
         )
     return polygons
+
+
+def trim_polygons(polygons: Sequence[dict], max_count: int) -> List[dict]:
+    if len(polygons) <= max_count:
+        trimmed = list(polygons)
+    else:
+        stride = math.ceil(len(polygons) / max_count)
+        trimmed = list(polygons[::stride])[:max_count]
+    for index, polygon in enumerate(trimmed, start=1):
+        polygon["id"] = index
+    return trimmed
 
 
 def mission_points(message) -> List[dict]:
@@ -337,22 +353,23 @@ def export_from_ros(args: argparse.Namespace) -> None:
     rospy.init_node("se2_web_asset_exporter", anonymous=True)
     mission = rospy.wait_for_message(args.mission_topic, SE2Path, timeout=args.timeout)
     navmesh_marker = rospy.wait_for_message(args.navmesh_topic, Marker, timeout=args.timeout)
+    path_navmesh_marker = rospy.wait_for_message(args.path_navmesh_topic, Marker, timeout=args.timeout)
 
     path_points = mission_points(mission)
     if len(path_points) < 2:
         raise RuntimeError("Planner mission topic did not contain a usable path.")
 
-    path_xyz = [(p["x"], p["y"], p["z"]) for p in path_points]
-    navmesh_bounds = bounds_for_points(path_xyz, margin_xy=args.navmesh_margin_xy, margin_z=args.navmesh_margin_z)
-
     mesh_data, mesh_triangle_count, mesh_loader = build_mesh_preview(args, path_points)
 
-    navmesh_polygons = marker_triangles(navmesh_marker, navmesh_bounds)
-    if len(navmesh_polygons) > args.max_navmesh_triangles:
-        stride = math.ceil(len(navmesh_polygons) / args.max_navmesh_triangles)
-        navmesh_polygons = navmesh_polygons[::stride][: args.max_navmesh_triangles]
-        for index, polygon in enumerate(navmesh_polygons, start=1):
-            polygon["id"] = index
+    full_navmesh_polygons = trim_polygons(
+        marker_triangles(navmesh_marker, kind="full"),
+        args.max_full_navmesh_triangles,
+    )
+    path_navmesh_polygons = trim_polygons(
+        marker_triangles(path_navmesh_marker, z_offset=0.065, kind="pathUsed"),
+        args.max_path_navmesh_triangles,
+    )
+    navmesh_polygons = full_navmesh_polygons + path_navmesh_polygons
 
     starts = path_points[0]
     goals = path_points[-1]
@@ -366,8 +383,12 @@ def export_from_ros(args: argparse.Namespace) -> None:
         {
             "source": args.navmesh_topic,
             "sourceType": "visualization_msgs/Marker TRIANGLE_LIST from se2_navmesh_static",
-            "filter": "hard-query crop around exported SE2 planner path",
+            "pathSource": args.path_navmesh_topic,
+            "pathSourceType": "visualization_msgs/Marker TRIANGLE_LIST from recast_path_polygons",
+            "filter": "full navmesh marker plus planner searched/path polygons",
             "triangleCount": len(navmesh_polygons),
+            "fullTriangleCount": len(full_navmesh_polygons),
+            "pathTriangleCount": len(path_navmesh_polygons),
             "polygons": navmesh_polygons,
         },
     )
@@ -411,7 +432,7 @@ def export_from_ros(args: argparse.Namespace) -> None:
             "notes": [
                 "Start and goal are loaded from se2_navmesh_ros_testing/config/00114-Coer9RdivP7_start_goal_hard.yaml.",
                 "The visible route is exported from the SE2 NavMesh planner mission topic, not hand drawn.",
-                "The navmesh overlay is cropped from the se2_navmesh_static TRIANGLE_LIST marker around the hard query.",
+                "The navmesh overlay shows the full se2_navmesh_static TRIANGLE_LIST marker in RViz light blue and the planner-used recast_path_polygons marker in yellow.",
                 f"The mesh preview was generated with {mesh_loader} using an upward-surface path-corridor filter; Python Open3D will be used automatically when installed.",
             ],
         },
@@ -420,13 +441,18 @@ def export_from_ros(args: argparse.Namespace) -> None:
     print(f"Wrote {SCENE_DIR / 'scene.json'}")
     print(f"Wrote {len(path_points)} path waypoints")
     print(f"Wrote {mesh_triangle_count} mesh preview triangles")
-    print(f"Wrote {len(navmesh_polygons)} navmesh overlay triangles")
+    print(
+        "Wrote "
+        f"{len(full_navmesh_polygons)} full navmesh triangles and "
+        f"{len(path_navmesh_polygons)} path navmesh triangles"
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mission-topic", default="/se2navmesh_mission")
     parser.add_argument("--navmesh-topic", default="/se2_navmesh_static_web_export/navigation_mesh")
+    parser.add_argument("--path-navmesh-topic", default="/se2_navmesh_static_web_export/recast_path_polygons")
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--mesh-margin-xy", type=float, default=1.3)
     parser.add_argument("--mesh-margin-z", type=float, default=0.7)
@@ -434,10 +460,9 @@ def main() -> None:
     parser.add_argument("--mesh-corridor-z", type=float, default=0.32)
     parser.add_argument("--min-mesh-abs-normal-z", type=float, default=0.58)
     parser.add_argument("--max-mesh-area", type=float, default=0.08)
-    parser.add_argument("--navmesh-margin-xy", type=float, default=0.9)
-    parser.add_argument("--navmesh-margin-z", type=float, default=0.25)
     parser.add_argument("--max-mesh-triangles", type=int, default=22000)
-    parser.add_argument("--max-navmesh-triangles", type=int, default=10000)
+    parser.add_argument("--max-full-navmesh-triangles", type=int, default=14000)
+    parser.add_argument("--max-path-navmesh-triangles", type=int, default=10000)
     parser.add_argument("--mesh-only", action="store_true")
     args = parser.parse_args()
     if args.mesh_only:
