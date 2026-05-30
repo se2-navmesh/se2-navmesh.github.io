@@ -1,0 +1,37 @@
+<launch>
+  <arg name="workspace_src" default="/home/kaixqu/workspaces/objectnav_ws/src" />
+
+  <node name="se2_navmesh_static_web_export" pkg="se2_navmesh_ros" type="se2_navmesh_static" output="screen" clear_params="true">
+    <param name="mesh_file_path" value="$(arg workspace_src)/mesh/00114-Coer9RdivP7.obj" />
+    <rosparam file="$(arg workspace_src)/novo_3d/deps/se2_navmesh/se2_navmesh_ros/config/00114-Coer9RdivP7.yaml" command="load" />
+
+    <param name="cell_size" value="0.1" />
+    <param name="cell_height" value="0.1" />
+    <param name="verts_per_poly" value="6" />
+    <param name="region_minSize" value="0" />
+    <param name="region_mergeSize" value="20" />
+    <param name="edge_maxError" value="0" />
+    <param name="tile_size" value="16" />
+
+    <rosparam file="$(arg workspace_src)/novo_3d/deps/se2_navmesh/se2_navmesh_ros/config/anymal_params.yaml" command="load" />
+    <param name="num_yaw_layers_pi" value="20" />
+    <param name="turning_factor" value="1.0" />
+    <param name="direction_factor" value="1.0" />
+    <param name="agent_mask_type" value="1" />
+
+    <param name="query_type" value="2" />
+    <param name="heuristic_type" value="0" />
+    <param name="search_node_size" value="1048575" />
+    <param name="search_extent_x" value="1.0" />
+    <param name="search_extent_y" value="1.0" />
+    <param name="search_extent_z" value="0.5" />
+
+    <rosparam file="$(arg workspace_src)/novo_3d/deps/se2_navmesh/se2_navmesh_ros_testing/config/00114-Coer9RdivP7_start_goal_hard.yaml" command="load" />
+
+    <param name="store_span_data" value="false" />
+    <param name="se2_navmesh_verbose" value="true" />
+    <param name="recast_verbose" value="false" />
+    <param name="tile_mesh_verbose" value="false" />
+    <param name="input_geom_verbose" value="false" />
+  </node>
+</launch>

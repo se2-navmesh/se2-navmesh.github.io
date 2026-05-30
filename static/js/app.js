@@ -211,7 +211,7 @@ function drawNavmesh(ctx) {
 }
 
 function pathPoints() {
-  return state.scene.paths.configuredQueryDraft;
+  return state.scene.paths.plannerQuery || state.scene.paths.configuredQueryDraft || [];
 }
 
 function interpolatePath(points, t) {
@@ -456,9 +456,9 @@ async function loadScene(canvas, ctx) {
   byId("layer").max = String(scene.yawLayers);
   byId("layer").value = String(state.layer);
   byId("tri-count").textContent = mesh.triangleCount.toLocaleString();
-  byId("path-count").textContent = scene.paths.configuredQueryDraft.length.toLocaleString();
+  byId("path-count").textContent = pathPoints().length.toLocaleString();
   byId("case-name").textContent = scene.name;
-  byId("path-note").textContent = `${scene.notes[1]} ${scene.notes[2] || ""} ${scene.notes[3] || ""}`.trim();
+  byId("path-note").textContent = scene.notes.join(" ");
   updateLabels();
   draw(ctx, canvas);
 }
