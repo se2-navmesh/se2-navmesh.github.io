@@ -73,18 +73,76 @@
   }
 
   /* ── Before/after comparison slider ───────────────────────────── */
+  // Scenes with aligned NavMesh / SE(2) NavMesh render pairs. The aspect ratio
+  // is the average of the two source PNGs, so object-fit:cover barely crops and
+  // the two layers line up under the wipe handle.
+  const COMPARE_SCENES = {
+    store:     { label: "Store",     ar: "1856 / 845" },
+    gym:       { label: "Gym",       ar: "1279 / 918" },
+    forum:     { label: "Forum",     ar: "1339 / 861" },
+    studio:    { label: "Studio",    ar: "1460 / 1032" },
+    apartment: { label: "Apartment", ar: "898 / 840" },
+  };
+
   function setupCompareSlider() {
     const range = el("compare-range");
     const top = el("compare-top");
     const handle = el("compare-handle");
     if (!range || !top || !handle) return;
 
-    function apply(v) {
+    function applyWipe(v) {
       top.style.clipPath = "inset(0 " + (100 - v) + "% 0 0)";
       handle.style.left = v + "%";
     }
-    range.addEventListener("input", () => apply(Number(range.value)));
-    apply(Number(range.value));
+    range.addEventListener("input", () => applyWipe(Number(range.value)));
+    applyWipe(Number(range.value));
+
+    // Scene selector: swap the aligned NavMesh / SE(2) pair under the wipe.
+    const wrap = el("compare-slider");
+    const baseImg = el("compare-base-img");
+    const topImg = el("compare-top-img");
+    const sceneName = el("compare-scene-name");
+    const sceneBtns = document.querySelectorAll(".seg-btn[data-scene-tab]");
+    const sceneSlider = el("scene-seg-slider");
+    if (!sceneBtns.length || !baseImg || !topImg) return;
+
+    function positionSceneSlider(btn) {
+      if (!sceneSlider || !btn) return;
+      sceneSlider.style.width = btn.offsetWidth + "px";
+      sceneSlider.style.transform = "translateX(" + (btn.offsetLeft - 3) + "px)";
+    }
+
+    function selectScene(id) {
+      const info = COMPARE_SCENES[id];
+      if (!info) return;
+      baseImg.src = "./static/images/" + id + "_mesh.png";
+      baseImg.alt = info.label + " classical NavMesh traversable regions";
+      topImg.src = "./static/images/" + id + "_se2_mesh.png";
+      topImg.alt = info.label + " SE(2) NavMesh traversable regions";
+      if (wrap) wrap.style.aspectRatio = info.ar;
+      if (sceneName) sceneName.textContent = info.label;
+      sceneBtns.forEach((b) => {
+        const active = b.dataset.sceneTab === id;
+        b.classList.toggle("is-active", active);
+        b.setAttribute("aria-selected", active ? "true" : "false");
+        if (active) positionSceneSlider(b);
+      });
+      range.value = 50;
+      applyWipe(50);
+    }
+
+    sceneBtns.forEach((b) => b.addEventListener("click", (e) => {
+      e.preventDefault();
+      selectScene(b.dataset.sceneTab);
+    }));
+
+    selectScene("store");
+    const repositionActive = () => {
+      const active = document.querySelector(".seg-btn[data-scene-tab].is-active");
+      if (active) positionSceneSlider(active);
+    };
+    window.addEventListener("resize", repositionActive);
+    window.addEventListener("load", repositionActive);
   }
 
   /* ── Yaw-feasibility demo ─────────────────────────────────────── */

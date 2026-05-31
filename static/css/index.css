@@ -692,7 +692,9 @@ mjx-container {
   width: 100%;
   max-width: 820px;
   margin: 0 auto;
-  aspect-ratio: 760 / 490;
+  /* Per-scene aspect ratio is set inline by JS; this is the default (Store). */
+  aspect-ratio: 1856 / 845;
+  background: #fff;
   border: 1px solid #d9e2ef;
   border-radius: 10px;
   overflow: hidden;
@@ -827,6 +829,8 @@ mjx-container {
 .legend-swatch.path { background: #ff6a4d; }
 .legend-swatch.navmesh { background: #6db8f2; }
 .legend-swatch.used-navmesh { background: #ffce4d; }
+.legend-swatch.safe { background: #32c771; }
+.legend-swatch.restricted { background: #ffc23d; }
 
 /* ── Inline stat band (replaces 3 stat boxes) ────────────────── */
 .stat-band {

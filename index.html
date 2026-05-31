@@ -489,25 +489,33 @@
     <h2 class="title is-3 has-text-centered">Interactive Path Planning Explorer</h2>
     <div class="content has-text-centered explorer-intro">
       <p>
-        A real ROS-exported SE(2) NavMesh on the hard query <code>00114-Coer9RdivP7</code>. The planning surface
-        is shown for context, with the full NavMesh and the planner's search polygons overlaid. Drag to orbit,
-        scroll to zoom, and scrub the yaw layer or play the route.
+        A real, ROS-generated SE(2) NavMesh on textured HM3D scenes. The colored carpet is the
+        <b>traversability field</b>: <b>safe</b> cells fit the robot footprint at every heading, while
+        <b>restricted</b> cells fit at only some. <b>Click a start and a goal</b> &mdash; a yaw-aware path is
+        planned live in your browser, with sideways motion penalized so the robot prefers to face the way it
+        travels. Drag to orbit, scroll to zoom.
       </p>
     </div>
 
     <div class="viewer-panel">
       <div class="viewer-canvas-wrap">
-        <canvas id="viewer" aria-label="Interactive SE(2) NavMesh mesh and path preview"></canvas>
-        <div class="viewer-help">Drag to orbit &middot; right-drag to pan &middot; scroll to zoom</div>
+        <canvas id="viewer" aria-label="Interactive SE(2) NavMesh explorer"></canvas>
+        <div class="viewer-help">Drag to orbit &middot; right-drag to pan &middot; scroll to zoom &middot; click to set start/goal</div>
         <div id="viewer-loading" class="viewer-loading">Loading 3D scene&hellip;</div>
       </div>
       <aside class="viewer-controls">
-        <h3 class="title is-5" id="case-name">Staircase &mdash; hard query</h3>
+        <label class="viewer-label" for="scene-select">Scene</label>
+        <div class="select is-small is-fullwidth">
+          <select id="scene-select"></select>
+        </div>
+
+        <p id="query-hint" class="viewer-note">Showing the configured query. Click the scene to set your own start and goal.</p>
+
         <div class="viewer-stats">
-          <div><span>Surface triangles</span><strong id="stat-tris">&ndash;</strong></div>
-          <div><span>NavMesh polygons</span><strong id="stat-polys">&ndash;</strong></div>
-          <div><span>Route states</span><strong id="stat-states">&ndash;</strong></div>
-          <div><span>Robot heading</span><strong id="stat-yaw">&ndash;</strong></div>
+          <div><span>Field cells</span><strong id="stat-cells">&ndash;</strong></div>
+          <div><span>Restricted cells</span><strong id="stat-restricted">&ndash;</strong></div>
+          <div><span>Path length</span><strong id="stat-len">&ndash;</strong></div>
+          <div><span>Path breakdown</span><strong id="stat-cost">&ndash;</strong></div>
         </div>
 
         <label class="viewer-label" for="route">Robot position along route</label>
@@ -515,25 +523,27 @@
 
         <div class="buttons are-small viewer-buttons">
           <button id="play" class="button is-dark" type="button">Play route</button>
-          <button id="reset" class="button" type="button">Reset view</button>
+          <button id="reset-query" class="button" type="button">Reset query</button>
+          <button id="reset-view" class="button" type="button">Reset view</button>
         </div>
 
         <div class="viewer-toggles">
-          <label class="checkbox"><input id="toggle-surface" type="checkbox" checked> Mesh surface</label>
-          <label class="checkbox"><input id="toggle-navmesh" type="checkbox" checked> SE(2) NavMesh</label>
-          <label class="checkbox"><input id="toggle-search" type="checkbox" checked> Path search regions</label>
+          <label class="checkbox"><input id="toggle-mesh" type="checkbox" checked> Scene mesh</label>
+          <label class="checkbox"><input id="toggle-cells" type="checkbox" checked> Traversability field</label>
           <label class="checkbox"><input id="toggle-path" type="checkbox" checked> Planned path</label>
           <label class="checkbox"><input id="toggle-robot" type="checkbox" checked> Robot footprint</label>
+          <label class="checkbox"><input id="toggle-ref" type="checkbox"> ASA reference (ROS)</label>
         </div>
 
         <div class="viewer-legend">
+          <div><span class="legend-swatch safe"></span>Safe &mdash; fits at every heading</div>
+          <div><span class="legend-swatch restricted"></span>Restricted &mdash; only some headings fit</div>
+          <div><span class="legend-swatch path"></span>Planned path</div>
           <div><span class="legend-swatch start"></span>Start &middot; goal</div>
-          <div><span class="legend-swatch path"></span>ASA path</div>
-          <div><span class="legend-swatch navmesh"></span>SE(2) NavMesh</div>
-          <div><span class="legend-swatch used-navmesh"></span>Path search regions</div>
         </div>
 
-        <p id="path-note" class="viewer-note">A staircase query climbing ~2.9&thinsp;m across floors. Heading changes as the robot turns onto each flight.</p>
+        <p class="viewer-note">In-browser lattice A&thinsp;* over the exported SE(2) field (faithful to the
+          representation; an approximation of the full C++&nbsp;ASA pipeline).</p>
       </aside>
     </div>
   </div>
@@ -550,20 +560,30 @@
         <div class="content has-text-justified">
           <p>
             Across six HM3D scenes, SE(2) NavMesh captures <b>over 50% more traversable area</b> than the classical
-            NavMesh in every scene, and its restricted regions bridge previously disconnected components. Drag the
-            handle to compare the two on the <em>Store</em> scene &mdash; SE(2) NavMesh keeps the narrow aisles that
-            the yaw-invariant NavMesh discards.
+            NavMesh in every scene, and its restricted regions bridge previously disconnected components. Pick a
+            scene and drag the handle to wipe between the two &mdash; SE(2) NavMesh keeps the narrow aisles,
+            doorways, and passages that the yaw-invariant NavMesh discards.
           </p>
+        </div>
+
+        <!-- Scene selector for the comparison slider -->
+        <div class="seg-track" id="scene-seg" role="tablist" aria-label="Comparison scene">
+          <div class="seg-slider" id="scene-seg-slider"></div>
+          <button class="seg-btn is-active" data-scene-tab="store" aria-selected="true">Store</button>
+          <button class="seg-btn" data-scene-tab="gym" aria-selected="false">Gym</button>
+          <button class="seg-btn" data-scene-tab="forum" aria-selected="false">Forum</button>
+          <button class="seg-btn" data-scene-tab="studio" aria-selected="false">Studio</button>
+          <button class="seg-btn" data-scene-tab="apartment" aria-selected="false">Apartment</button>
         </div>
 
         <!-- Interactive before/after comparison slider -->
         <div class="compare-wrap" id="compare-slider">
           <div class="compare-img-base">
-            <img src="./static/images/compare_navmesh.jpg" alt="Classical NavMesh traversable regions">
+            <img id="compare-base-img" src="./static/images/store_mesh.png" alt="Store classical NavMesh traversable regions">
             <span class="compare-tag compare-tag-right">Classical NavMesh</span>
           </div>
           <div class="compare-img-top" id="compare-top">
-            <img src="./static/images/compare_se2.jpg" alt="SE(2) NavMesh traversable regions">
+            <img id="compare-top-img" src="./static/images/store_se2_mesh.png" alt="Store SE(2) NavMesh traversable regions">
             <span class="compare-tag compare-tag-left">SE(2) NavMesh</span>
           </div>
           <div class="compare-handle" id="compare-handle">
@@ -572,16 +592,12 @@
           </div>
           <input type="range" id="compare-range" min="0" max="100" value="50" aria-label="Comparison slider">
         </div>
-        <p class="figure-caption">Traversable regions (blue) in the <em>Store</em> scene. Drag to wipe between methods.</p>
-
-        <figure class="image paper-figure mt-5">
-          <img src="./static/images/offline_generation.jpg" alt="Offline mesh generation across six scenes">
-        </figure>
         <p class="figure-caption">
-          Six scenes (top: 3D model). Middle row: SE(2) NavMesh traversable regions. Bottom row: classical NavMesh.
+          Traversable regions (blue) in the <em id="compare-scene-name">Store</em> scene &mdash; classical NavMesh vs.
+          SE(2) NavMesh, rendered from the same viewpoint. Pick a scene above; drag to wipe between methods.
         </p>
 
-        <figure class="image paper-figure mt-4">
+        <figure class="image paper-figure mt-5">
           <img src="./static/images/traversable_regions_all_new.png" alt="Traversable area comparison bar chart">
         </figure>
         <p class="figure-caption">

@@ -1,66 +1,98 @@
 # SE(2) NavMesh Project Page
 
-Anonymous static project page prototype for `se2-navmesh.github.io`.
+Anonymous static project page for `se2-navmesh.github.io`. Everything needed for
+the site lives in this folder and can be uploaded directly to GitHub Pages.
 
-Everything needed for the website is inside this folder. It can be uploaded directly
-to a GitHub Pages repository.
+## Interactive Path-Planning Explorer
 
-The first interactive scene uses:
+The headline interactive (`#explorer`) is a from-scratch Three.js viewer driven by
+**real, ROS-generated SE(2) NavMesh data** on **textured HM3D scenes**:
 
-- `mesh/00114-Coer9RdivP7.obj` as the raw source mesh.
-- `se2_navmesh_ros_testing/config/00114-Coer9RdivP7_start_goal_hard.yaml` for start and goal.
-- A local hard-query planning-surface crop at `static/scenes/00114-hard/local_planning_surface.json`.
-- A ROS-exported SE(2) navmesh overlay at `static/scenes/00114-hard/navmesh_overlay.json`,
-  with the full navmesh in RViz light blue and planner-used search polygons in yellow.
-- A planner-exported ASA route in `paths.plannerQuery` in `static/scenes/00114-hard/scene.json`.
+- **Textured environment** — the original HM3D `.glb`, decimated + meshopt-compressed
+  and baked into the navmesh coordinate frame (`static/scenes/<id>/scene.glb`).
+- **Yaw-dependent traversability field** — one cell per walkable surface patch, each
+  carrying a bitmask of feasible headings (`field.bin`), colored **safe** (fits at
+  every heading) vs **restricted** (fits at only some). This makes the paper's core
+  claim tangible.
+- **Live in-browser planning** — click a start and a goal and a yaw-aware path is
+  planned by **lattice A\*** over `(cell, heading)` on the exported field, with
+  translate-and-turn moves so the robot can rotate through restricted regions and a
+  directional cost (lateral motion 5× dearer than forward) so it prefers to face the
+  way it travels. It is
+  faithful to the representation and an approximation of the full C++ ASA pipeline.
+- **Scene selector** across several HM3D scenes; the configured ASA query (from the
+  ROS testing configs) is shown as a reference path you can toggle on.
 
-The assets can be regenerated from a running SE2 navmesh ROS node:
+Scenes are listed in `static/scenes/index.json`; each `static/scenes/<dir>/` holds
+`scene.glb`, `field.bin`, and `scene.json` (agent, yaw layers, bounds, start/goal,
+ASA reference path).
+
+> **Full write-up:** [`docs/explorer-rebuild.md`](docs/explorer-rebuild.md) — the
+> rebuild rationale, architecture/data-flow, coordinate frames, the planner, how to
+> add a scene, and environment gotchas. Read that first to extend the explorer.
+
+## Regenerating scene assets
+
+Two independent pipelines feed each scene. Both are scripted in `tools/`.
+
+### 1. Textured mesh (no ROS)
 
 ```bash
-roslaunch tools/web_export_00114.launch
-python3 tools/export_scene_assets.py
+tools/make_scene_glb.sh <hm3d_source.glb> static/scenes/<dir>/scene.glb [simplify=0.3] [tex=512] [quality=80]
 ```
 
-`tools/export_scene_assets.py` uses Python Open3D for OBJ loading when it is installed,
-and otherwise falls back to a streaming OBJ parser.
+Pipeline: **Blender** (`blender_export_scene.py`) imports the HM3D glb, rotates it
+into the navmesh frame (`(x,y,z) -> (-x,-z,-y)`, derived by matching the workspace OBJ
+bounds — see `blender_probe_bounds.py`), exports Z-up → **PIL** (`glb_shrink_textures.py`)
+downscales the embedded textures → **gltfpack** (`tools/bin/gltfpack`) simplifies and
+meshopt-compresses. Result is a few MB, in the navmesh frame, loaded in three.js with
+`GLTFLoader` + `MeshoptDecoder`.
 
-## Interactive components
+`tools/bin/gltfpack` is built from [zeux/meshoptimizer](https://github.com/zeux/meshoptimizer)
+(`cmake -DMESHOPT_BUILD_GLTFPACK=ON`); rebuild it for your platform if needed.
 
-Static interactive widgets live in `static/js/interactives.js` (no build step, vanilla JS):
+`tools/make_all_glbs.sh` runs this for every scene in its table.
 
-- **Video segmented control** — Overview / Real-World Navigation / Online Generation tabs.
-- **NavMesh vs. SE(2) comparison slider** — wipes between `static/images/compare_navmesh.jpg`
-  and `static/images/compare_se2.jpg` (aligned crops of the *Store* scene).
-- **Yaw-feasibility demo** — rotate an ANYmal footprint in an adjustable-width passage to see
-  which headings fit; the dial counts feasible yaw channels (safe / restricted / inaccessible).
-- **ASA stepper** — steps/auto-plays through A* → string pulling → yaw refinement.
-- **SPC benchmark chart** — Chart.js plot of ASA vs. sampling-based planners.
+### 2. SE(2) traversability field (ROS)
 
-MathJax and Chart.js are loaded from CDN; everything else is local.
+```bash
+# one scene
+roslaunch tools/web_export_field.launch \
+  mesh_file:=$WS/src/mesh/<id>.obj \
+  recast_cfg:=.../config/<id>.yaml \
+  startgoal:=.../config/<id>_start_goal_hard.yaml
+python3 tools/export_field.py --scene-dir static/scenes/<dir>
+```
+
+The launch builds the SE(2) NavMesh with `store_span_data` + `display_span_area`
+enabled; `export_field.py` subscribes to the latched span-area markers (per-cell yaw
+bitmask) and the planner mission (continuous-yaw ASA path) and writes `field.bin` +
+`scene.json`. `tools/export_all_fields.sh` runs this for every scene sequentially.
+
+### Verify & preview
+
+```bash
+python3 tools/verify_scenes.py            # QA all scenes: alignment + a planned path
+tools/screenshot_scene.sh 00473 out.png   # headless-Chrome render of one scene
+python3 -m http.server 8020               # then /tools/preview_harness.html?scene=00473
+```
+
+## Other interactive components
+
+Static widgets in `static/js/interactives.js` (vanilla JS, no build step): video
+segmented control, NavMesh vs. SE(2) comparison slider, yaw-feasibility demo, ASA
+stepper, and the SPC benchmark chart. MathJax and Chart.js load from CDN; Three.js
+(+ addons) loads from the import map in `index.html`.
 
 ## Videos
 
-The Videos section and the hero "Video" button expect three MP4s (posters are shown until
-the files exist):
+The Videos section expects three MP4s (posters show until the files exist):
+`static/videos/overview.mp4`, `static/videos/real_world.mp4`,
+`static/videos/online_generation.mp4`.
 
-| Tab                  | Drop file at                          |
-| -------------------- | ------------------------------------- |
-| Overview             | `static/videos/overview.mp4`          |
-| Real-World Navigation| `static/videos/real_world.mp4`        |
-| Online Generation    | `static/videos/online_generation.mp4` |
-
-After adding a file, optionally make it autoplay by adding `autoplay muted loop` to the
-matching `<video>` tag in `index.html`.
-
-Most result figures are derived from the paper sources in `../SE2/Images/` (JPGs copied and
-PDFs rasterized with `pdftoppm` / `convert`).
-
-## Local Preview
-
-From this folder:
+## Local preview
 
 ```bash
 python3 -m http.server 8020
+# open http://127.0.0.1:8020/
 ```
-
-Then open `http://127.0.0.1:8020/`.

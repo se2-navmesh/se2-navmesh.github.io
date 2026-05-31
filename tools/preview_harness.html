@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SE(2) Explorer — preview harness</title>
+  <!-- base = repo root so ./static/... resolves when served from /tools/ -->
+  <base href="../">
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="./static/js/explorer.js"></script>
+  <style>body{padding:1rem;background:#fff}</style>
+</head>
+<body>
+<!--
+  Minimal, explorer-only page for quick single-scene testing and screenshots.
+  Open ?scene=<dir>  e.g.  /tools/preview_harness.html?scene=00473
+  Mirrors the #explorer markup/ids in index.html exactly.
+-->
+<section id="explorer" class="section">
+  <div class="container is-max-widescreen">
+    <div class="viewer-panel">
+      <div class="viewer-canvas-wrap">
+        <canvas id="viewer"></canvas>
+        <div class="viewer-help">drag to orbit · click to set start/goal</div>
+        <div id="viewer-loading" class="viewer-loading">Loading 3D scene…</div>
+      </div>
+      <aside class="viewer-controls">
+        <label class="viewer-label" for="scene-select">Scene</label>
+        <div class="select is-small is-fullwidth"><select id="scene-select"></select></div>
+        <p id="query-hint" class="viewer-note">hint</p>
+        <div class="viewer-stats">
+          <div><span>Field cells</span><strong id="stat-cells">&ndash;</strong></div>
+          <div><span>Restricted cells</span><strong id="stat-restricted">&ndash;</strong></div>
+          <div><span>Path length</span><strong id="stat-len">&ndash;</strong></div>
+          <div><span>Path breakdown</span><strong id="stat-cost">&ndash;</strong></div>
+        </div>
+        <input id="route" type="range" min="0" max="1000" value="0" step="1">
+        <div class="buttons are-small">
+          <button id="play" type="button">Play route</button>
+          <button id="reset-query" type="button">Reset query</button>
+          <button id="reset-view" type="button">Reset view</button>
+        </div>
+        <div class="viewer-toggles">
+          <label class="checkbox"><input id="toggle-mesh" type="checkbox" checked> mesh</label>
+          <label class="checkbox"><input id="toggle-cells" type="checkbox" checked> cells</label>
+          <label class="checkbox"><input id="toggle-path" type="checkbox" checked> path</label>
+          <label class="checkbox"><input id="toggle-robot" type="checkbox" checked> robot</label>
+          <label class="checkbox"><input id="toggle-ref" type="checkbox"> ref</label>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+</body>
+</html>
