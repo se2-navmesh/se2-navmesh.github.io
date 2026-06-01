@@ -393,10 +393,11 @@
     const canvas = el("spc-canvas");
     if (!canvas || typeof Chart === "undefined") return;
 
-    const planners = ["ASA", "PRM-SE2NM", "PRM", "RRT*-SE2NM", "RRT-SE2NM", "RRT", "RRT*"];
+    const planners = ["ASA", "RRT-SE2NM", "RRT*-SE2NM", "PRM-SE2NM", "RRT", "RRT*", "PRM"];
     const gym = [0.41, 0.27, 0.15, 0.18, 0.13, 0.13, 0.16];
     const studio = [0.98, 0.63, 0.42, 0.26, 0.29, 0.29, 0.25];
-    const highlight = (base) => planners.map((p) => p === "ASA" ? "#13866f" : base);
+    const highlight = (base, accent) => (c) => planners[c.dataIndex] === "ASA" ? accent : base;
+    const legendBaseColors = ["#9ec5d8", "#7fb27e"];
     const isMobile = window.matchMedia("(max-width: 768px)").matches;
 
     new Chart(canvas, {
@@ -404,15 +405,27 @@
       data: {
         labels: planners,
         datasets: [
-          { label: "Gym SPC", data: gym, backgroundColor: highlight("#9ec5d8"), borderRadius: 3 },
-          { label: "Studio SPC", data: studio, backgroundColor: highlight("#7fb27e"), borderRadius: 3 }
+          { label: "Gym SPC", data: gym, backgroundColor: highlight("#9ec5d8", "#3f8fb5"), borderRadius: 3 },
+          { label: "Studio SPC", data: studio, backgroundColor: highlight("#7fb27e", "#13866f"), borderRadius: 3 }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: "bottom", labels: { boxWidth: isMobile ? 10 : 13, padding: isMobile ? 10 : 16, font: { size: isMobile ? 10 : 12 } } },
+          legend: {
+            position: "bottom",
+            labels: {
+              boxWidth: isMobile ? 10 : 13,
+              padding: isMobile ? 10 : 16,
+              font: { size: isMobile ? 10 : 12 },
+              generateLabels: (chart) => Chart.defaults.plugins.legend.labels.generateLabels(chart).map((label) => ({
+                ...label,
+                fillStyle: legendBaseColors[label.datasetIndex] || label.fillStyle,
+                strokeStyle: legendBaseColors[label.datasetIndex] || label.strokeStyle,
+              })),
+            }
+          },
           tooltip: { callbacks: { label: (c) => c.dataset.label + ": " + c.parsed.y.toFixed(2) } }
         },
         scales: {
