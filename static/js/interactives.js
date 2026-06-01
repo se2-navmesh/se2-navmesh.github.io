@@ -73,15 +73,14 @@
   }
 
   /* ── Before/after comparison slider ───────────────────────────── */
-  // Scenes with aligned NavMesh / SE(2) NavMesh render pairs. The aspect ratio
-  // is the average of the two source PNGs, so object-fit:cover barely crops and
-  // the two layers line up under the wipe handle.
+  // Scenes with aligned NavMesh / SE(2) NavMesh render pairs.
   const COMPARE_SCENES = {
-    store:     { label: "Store",     ar: "1856 / 845" },
-    gym:       { label: "Gym",       ar: "1279 / 918" },
-    forum:     { label: "Forum",     ar: "1339 / 861" },
-    studio:    { label: "Studio",    ar: "1460 / 1032" },
-    apartment: { label: "Apartment", ar: "898 / 840" },
+    garage:    { label: "Garage",    stem: "Garage",    ar: "3198 / 1965" },
+    store:     { label: "Store",     stem: "Store",     ar: "3198 / 1965" },
+    gym:       { label: "Gym",       stem: "Gym",       ar: "3198 / 1965" },
+    forum:     { label: "Forum",     stem: "Forum",     ar: "3198 / 1965" },
+    studio:    { label: "Studio",    stem: "Studio",    ar: "3198 / 1965" },
+    apartment: { label: "Apartment", stem: "Apartment", ar: "3198 / 1965" },
   };
 
   function setupCompareSlider() {
@@ -115,9 +114,9 @@
     function selectScene(id) {
       const info = COMPARE_SCENES[id];
       if (!info) return;
-      baseImg.src = "./static/images/" + id + "_mesh.png";
+      baseImg.src = "./static/images/" + info.stem + "_NavMesh.png";
       baseImg.alt = info.label + " classical NavMesh traversable regions";
-      topImg.src = "./static/images/" + id + "_se2_mesh.png";
+      topImg.src = "./static/images/" + info.stem + "_SE2NavMesh.png";
       topImg.alt = info.label + " SE(2) NavMesh traversable regions";
       if (wrap) wrap.style.aspectRatio = info.ar;
       if (sceneName) sceneName.textContent = info.label;
@@ -136,7 +135,7 @@
       selectScene(b.dataset.sceneTab);
     }));
 
-    selectScene("store");
+    selectScene("garage");
     const repositionActive = () => {
       const active = document.querySelector(".seg-btn[data-scene-tab].is-active");
       if (active) positionSceneSlider(active);

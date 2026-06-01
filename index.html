@@ -569,7 +569,8 @@
         <!-- Scene selector for the comparison slider -->
         <div class="seg-track" id="scene-seg" role="tablist" aria-label="Comparison scene">
           <div class="seg-slider" id="scene-seg-slider"></div>
-          <button class="seg-btn is-active" data-scene-tab="store" aria-selected="true">Store</button>
+          <button class="seg-btn is-active" data-scene-tab="garage" aria-selected="true">Garage</button>
+          <button class="seg-btn" data-scene-tab="store" aria-selected="false">Store</button>
           <button class="seg-btn" data-scene-tab="gym" aria-selected="false">Gym</button>
           <button class="seg-btn" data-scene-tab="forum" aria-selected="false">Forum</button>
           <button class="seg-btn" data-scene-tab="studio" aria-selected="false">Studio</button>
@@ -579,11 +580,11 @@
         <!-- Interactive before/after comparison slider -->
         <div class="compare-wrap" id="compare-slider">
           <div class="compare-img-base">
-            <img id="compare-base-img" src="./static/images/store_mesh.png" alt="Store classical NavMesh traversable regions">
+            <img id="compare-base-img" src="./static/images/Garage_NavMesh.png" alt="Garage classical NavMesh traversable regions">
             <span class="compare-tag compare-tag-right">Classical NavMesh</span>
           </div>
           <div class="compare-img-top" id="compare-top">
-            <img id="compare-top-img" src="./static/images/store_se2_mesh.png" alt="Store SE(2) NavMesh traversable regions">
+            <img id="compare-top-img" src="./static/images/Garage_SE2NavMesh.png" alt="Garage SE(2) NavMesh traversable regions">
             <span class="compare-tag compare-tag-left">SE(2) NavMesh</span>
           </div>
           <div class="compare-handle" id="compare-handle">
@@ -593,7 +594,7 @@
           <input type="range" id="compare-range" min="0" max="100" value="50" aria-label="Comparison slider">
         </div>
         <p class="figure-caption">
-          Traversable regions (blue) in the <em id="compare-scene-name">Store</em> scene &mdash; classical NavMesh vs.
+          Traversable regions (blue) in the <em id="compare-scene-name">Garage</em> scene &mdash; classical NavMesh vs.
           SE(2) NavMesh, rendered from the same viewpoint. Pick a scene above; drag to wipe between methods.
         </p>
 

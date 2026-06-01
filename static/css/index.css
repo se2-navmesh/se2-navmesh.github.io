@@ -693,7 +693,7 @@ mjx-container {
   max-width: 820px;
   margin: 0 auto;
   /* Per-scene aspect ratio is set inline by JS; this is the default (Store). */
-  aspect-ratio: 1856 / 845;
+  aspect-ratio: 3198 / 1965;
   background: #fff;
   border: 1px solid #d9e2ef;
   border-radius: 10px;
