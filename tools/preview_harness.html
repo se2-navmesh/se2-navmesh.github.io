@@ -54,7 +54,16 @@
           <label class="checkbox"><input id="toggle-cells" type="checkbox" checked> cells</label>
           <label class="checkbox"><input id="toggle-path" type="checkbox" checked> path</label>
           <label class="checkbox"><input id="toggle-robot" type="checkbox" checked> robot</label>
-          <label class="checkbox"><input id="toggle-ref" type="checkbox"> ref</label>
+        </div>
+        <div class="viewer-asa">
+          <label class="viewer-label">ASA pipeline <span class="viewer-asa-note">&middot; ROS reference query</span></label>
+          <div id="asa-stage-controls" class="asa-stepper" role="tablist" aria-label="ASA pipeline stages">
+            <button class="asa-step-btn" type="button" data-asa-stage="0"><span class="asa-step-num">1</span> Initial A&thinsp;*</button>
+            <button class="asa-step-btn" type="button" data-asa-stage="1"><span class="asa-step-num">2</span> String pull</button>
+            <button class="asa-step-btn" type="button" data-asa-stage="2"><span class="asa-step-num">3</span> Second A&thinsp;*</button>
+          </div>
+          <p id="asa-caption" class="viewer-asa-caption"></p>
+          <div id="asa-stats" class="asa-stats"></div>
         </div>
       </aside>
     </div>

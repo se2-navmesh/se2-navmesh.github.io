@@ -312,6 +312,31 @@ code {
   font-size: 0.86rem;
 }
 
+/* ── Explorer ASA pipeline controls ──────────────────────────── */
+.viewer-asa {
+  margin: 1.1rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid #d9e2ef;
+}
+.viewer-asa .asa-stepper {
+  justify-content: flex-start;
+  margin-bottom: 0;
+}
+.viewer-asa-note {
+  color: #94a3b8;
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+.viewer-asa-caption {
+  margin: 0.7rem 0 0;
+  color: #475569;
+  font-size: 0.86rem;
+  min-height: 3.2em;
+}
+.viewer-asa .asa-stats {
+  margin-top: 0.5rem;
+}
+
 .bibtex {
   overflow-x: auto;
   padding: 1.1rem;

@@ -27,7 +27,9 @@ teardown() { pkill -x se2_navmesh_static; pkill -x rosmaster; pkill -x roscore; 
 for entry in "${SCENES[@]}"; do
   IFS=: read -r dir full obj <<< "$entry"
   out="$SITE/static/scenes/$dir"
-  if [ -f "$out/field.bin" ]; then echo "SKIP $full (field exists)"; continue; fi
+  if [ -f "$out/field.bin" ] && grep -q asaStages "$out/scene.json" 2>/dev/null; then
+    echo "SKIP $full (already has asaStages)"; continue
+  fi
   mkdir -p "$out"
   echo "=== FIELD $full ==="
   teardown

@@ -412,42 +412,12 @@
         <h3 class="title is-4" id="method-asa">ASA Pathfinding</h3>
         <div class="content has-text-justified">
           <p>
-            Planning on the SE(2) NavMesh runs in three stages, <b>A&thinsp;*&ndash;String&nbsp;Pulling&ndash;A&thinsp;*</b>.
-            Step through them below to see how the path is first found, then geometrically straightened, then
-            re-optimized in yaw.
+            Planning on the SE(2) NavMesh runs in three stages, <b>A&thinsp;*&ndash;String&nbsp;Pulling&ndash;A&thinsp;*</b>:
+            an initial A&thinsp;* finds a feasible (but zig-zagging) path with a valid heading at every node; string
+            pulling straightens it geometrically, dropping orientation; and a second A&thinsp;* re-optimizes the heading
+            along the straightened path. Step through all three stages on real ROS planner data in the
+            <a href="#explorer">interactive explorer</a> below &mdash; the <b>ASA pipeline</b> buttons.
           </p>
-        </div>
-
-        <!-- Interactive ASA stepper -->
-        <div class="box demo-box" id="asa-demo">
-          <div class="asa-stepper" role="tablist" aria-label="ASA stages">
-            <button class="asa-step-btn is-active" data-asa-stage="0">
-              <span class="asa-step-num">1</span> Initial A&thinsp;* Search
-            </button>
-            <span class="asa-arrow">&rarr;</span>
-            <button class="asa-step-btn" data-asa-stage="1">
-              <span class="asa-step-num">2</span> String Pulling
-            </button>
-            <span class="asa-arrow">&rarr;</span>
-            <button class="asa-step-btn" data-asa-stage="2">
-              <span class="asa-step-num">3</span> Yaw Refinement
-            </button>
-          </div>
-          <div class="columns is-vcentered mt-2">
-            <div class="column is-three-fifths">
-              <svg id="asa-svg" viewBox="0 0 480 280" xmlns="http://www.w3.org/2000/svg" aria-label="ASA pathfinding stages"></svg>
-            </div>
-            <div class="column is-two-fifths">
-              <div id="asa-info" class="demo-info-box"></div>
-              <div class="asa-stats">
-                <div><span>Path length</span><strong id="asa-len">&ndash;</strong></div>
-                <div><span>Path cost (time)</span><strong id="asa-cost">&ndash;</strong></div>
-              </div>
-              <div class="buttons are-small mt-2">
-                <button id="asa-play" class="button is-dark" type="button">Auto-play</button>
-              </div>
-            </div>
-          </div>
         </div>
 
         <figure class="image paper-figure mt-4">
@@ -530,9 +500,19 @@
         <div class="viewer-toggles">
           <label class="checkbox"><input id="toggle-mesh" type="checkbox" checked> Scene mesh</label>
           <label class="checkbox"><input id="toggle-cells" type="checkbox" checked> Traversability field</label>
-          <label class="checkbox"><input id="toggle-path" type="checkbox" checked> Planned path</label>
+          <label class="checkbox"><input id="toggle-path" type="checkbox" checked> Planned path (live, in-browser)</label>
           <label class="checkbox"><input id="toggle-robot" type="checkbox" checked> Robot footprint</label>
-          <label class="checkbox"><input id="toggle-ref" type="checkbox"> ASA reference (ROS)</label>
+        </div>
+
+        <div class="viewer-asa">
+          <label class="viewer-label">ASA pipeline <span class="viewer-asa-note">&middot; ROS reference query</span></label>
+          <div id="asa-stage-controls" class="asa-stepper" role="tablist" aria-label="ASA pipeline stages">
+            <button class="asa-step-btn" type="button" data-asa-stage="0"><span class="asa-step-num">1</span> Initial A&thinsp;*</button>
+            <button class="asa-step-btn" type="button" data-asa-stage="1"><span class="asa-step-num">2</span> String pull</button>
+            <button class="asa-step-btn" type="button" data-asa-stage="2"><span class="asa-step-num">3</span> Second A&thinsp;*</button>
+          </div>
+          <p id="asa-caption" class="viewer-asa-caption"></p>
+          <div id="asa-stats" class="asa-stats"></div>
         </div>
 
         <div class="viewer-legend">
@@ -542,8 +522,10 @@
           <div><span class="legend-swatch start"></span>Start &middot; goal</div>
         </div>
 
-        <p class="viewer-note">In-browser lattice A&thinsp;* over the exported SE(2) field (faithful to the
-          representation; an approximation of the full C++&nbsp;ASA pipeline).</p>
+        <p class="viewer-note">Click a start and goal for a live in-browser lattice A&thinsp;* path (faithful to the
+          exported SE(2) field; an approximation of the full C++&nbsp;ASA pipeline). The <b>ASA pipeline</b> buttons
+          overlay the real ROS planner&rsquo;s three stages for this scene&rsquo;s reference query &mdash; step through
+          them to watch the path straighten, then re-optimize its yaw.</p>
       </aside>
     </div>
   </div>

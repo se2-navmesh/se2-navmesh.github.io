@@ -36,6 +36,17 @@ const COL = {
   robot: 0x33d6c0,
 };
 
+// The real ROS ASA pipeline (A*-String pulling-A*), exported per scene as
+// scene.asaStages and shown as a stepper overlay in the explorer.
+const ASA_STAGES = [
+  { key: "initialAstar", num: 1, label: "Initial A*", color: 0xf59e0b, hasYaw: true,
+    caption: "Initial A* over (cell, yaw-layer) states: a feasible path that zig-zags through polygon-edge midpoints, with a valid heading at every node." },
+  { key: "stringPull", num: 2, label: "String pull", color: 0x3b82f6, hasYaw: false,
+    caption: "String pulling straightens the path inside the polygon corridor. Positions only — orientation is intentionally dropped at this stage." },
+  { key: "secondAstar", num: 3, label: "Second A*", color: 0x22c55e, hasYaw: true,
+    caption: "A second A* re-optimizes the heading along the straightened path, restoring yaw that matches the new direction of motion." },
+];
+
 const canvas = $("viewer");
 if (canvas) boot().catch(showError);
 
@@ -84,6 +95,9 @@ async function boot() {
   let initial = scenes.findIndex((s) => s.dir === want || s.id === want);
   if (initial < 0) initial = 0;
   sel.value = String(initial);
+  // optional ?stage=<0|1|2> deep link: pre-select an ASA pipeline stage on first load
+  const sQ = new URLSearchParams(location.search).get("stage");
+  let pendingStage = sQ != null && sQ !== "" ? Number(sQ) : -1;
   await loadScene(scenes[initial]);
 
   // ── load + build one scene ──────────────────────────────────────
@@ -137,19 +151,17 @@ async function boot() {
 
     // path + robot + markers containers
     const pathGroup = new THREE.Group();
-    const refGroup = new THREE.Group();
+    const asaGroup = new THREE.Group();
     const markers = new THREE.Group();
     const robot = buildRobot(scene.agent);
-    group.add(pathGroup, refGroup, markers, robot);
+    group.add(pathGroup, asaGroup, markers, robot);
 
-    // reference (ROS ASA) path, faint
-    if (scene.referencePath && scene.referencePath.length > 1) {
-      refGroup.add(polyline(scene.referencePath.map((p) => [p.x, p.y, p.z + 0.05]),
-        COL.ref, 0.025, 0.5));
-    }
+    // real ROS ASA pipeline stages (initial A* / string pull / second A*)
+    const asa = parseAsaStages(scene);
 
     S = { meta, scene, field, cells, planner, group, env, rayTargets,
-          pathGroup, refGroup, markers, robot, route: null, t: 0, playing: false };
+          pathGroup, asaGroup, markers, robot, asa, asaStage: -1,
+          route: null, t: 0, playing: false };
 
     // camera framing
     const b = scene.field.bounds;
@@ -162,6 +174,8 @@ async function boot() {
     // initial query = configured start/goal
     setQuery(scene.start, scene.goal);
     applyToggles();
+    showAsaStage(Number.isInteger(pendingStage) && pendingStage >= 0 && pendingStage <= 2 ? pendingStage : -1);
+    pendingStage = -1; // deep-link applies once; later scene switches start hidden
     colorCells();
     setLoading(null);
   }
@@ -440,6 +454,83 @@ async function boot() {
     S.robot.rotation.set(0, 0, (L < 0 ? wantL : L) * f.yawStep);
   }
 
+  // ── ASA pipeline overlay (real ROS data) ────────────────────────
+  // Normalize scene.asaStages into {initialAstar, stringPull, secondAstar}
+  // arrays of {x,y,z,yaw?}. Falls back to referencePath for the final stage.
+  function parseAsaStages(scene) {
+    const src = scene.asaStages || {};
+    const norm = (arr) => (Array.isArray(arr)
+      ? arr.map((p) => ({ x: p.x, y: p.y, z: p.z, yaw: p.yaw })) : []);
+    const second = norm(src.secondAstar);
+    return {
+      initialAstar: norm(src.initialAstar),
+      stringPull: norm(src.stringPull),
+      secondAstar: second.length ? second : norm(scene.referencePath),
+    };
+  }
+
+  // Render the ASA overlay: the selected stage solid (+ heading arrows for the
+  // yawed stages 1 & 3), the other stages faint, so the path visibly morphs
+  // zig-zag -> straight -> re-yawed. idx < 0 hides the overlay.
+  function showAsaStage(idx) {
+    if (!S) return;
+    S.asaStage = idx;
+    S.asaGroup.clear();
+    document.querySelectorAll("#asa-stage-controls .asa-step-btn").forEach((b) =>
+      b.classList.toggle("is-active", Number(b.dataset.asaStage) === idx));
+
+    const cap = $("asa-caption"), stat = $("asa-stats");
+    if (idx < 0) {
+      S.asaGroup.visible = false;
+      if (cap) cap.textContent = "Select a stage to overlay the ROS planner’s A* → string-pull → A* path for this scene’s reference query.";
+      if (stat) stat.innerHTML = "";
+      return;
+    }
+    S.asaGroup.visible = true;
+
+    // faint, non-selected stages first (so the selected one draws on top)
+    ASA_STAGES.forEach((st, j) => {
+      if (j === idx) return;
+      const pts = tubePoints(S.asa[st.key], 0.06);
+      if (pts.length > 1) S.asaGroup.add(polyline(pts, st.color, 0.02, 0.16));
+    });
+
+    const sel = ASA_STAGES[idx], path = S.asa[sel.key];
+    const pts = tubePoints(path, 0.08);
+    if (pts.length < 2) {
+      if (cap) cap.textContent = "This stage has no exported data for the current scene.";
+      if (stat) stat.innerHTML = "";
+      return;
+    }
+    S.asaGroup.add(polyline(pts, sel.color, 0.05, 1.0, true));
+    if (sel.hasYaw) S.asaGroup.add(headingArrows(path, sel.color));
+
+    // real per-stage stats (length always; fwd/lat/turn for the yawed stages)
+    let len = 0, fwd = 0, lat = 0, turn = 0;
+    for (let i = 1; i < path.length; i++) {
+      const dx = path[i].x - path[i-1].x, dy = path[i].y - path[i-1].y, dz = path[i].z - path[i-1].z;
+      const d = Math.hypot(dx, dy, dz); len += d;
+      if (sel.hasYaw) {
+        if (d > 1e-9) {
+          const diff = Math.atan2(dy, dx) - (path[i-1].yaw || 0);
+          fwd += d * Math.abs(Math.cos(diff));
+          lat += d * Math.abs(Math.sin(diff));
+        }
+        let a = Math.abs((path[i].yaw || 0) - (path[i-1].yaw || 0)) % (2 * Math.PI);
+        if (a > Math.PI) a = 2 * Math.PI - a;
+        turn += a;
+      }
+    }
+    if (cap) cap.textContent = sel.caption;
+    if (stat) {
+      stat.innerHTML = "<div><span>Length</span><strong>" + len.toFixed(2) + " m</strong></div>" +
+        (sel.hasYaw
+          ? "<div><span>Fwd · lat · turn</span><strong>" + fwd.toFixed(2) + " · " +
+            lat.toFixed(2) + " m · " + (turn * 180 / Math.PI).toFixed(0) + "°</strong></div>"
+          : "<div><span>Orientation</span><strong>none (dropped)</strong></div>");
+    }
+  }
+
   // ── interaction: click to set start / goal ──────────────────────
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -476,9 +567,14 @@ async function boot() {
   bindToggle("toggle-cells", () => S.cells.mesh);
   bindToggle("toggle-path", () => S.pathGroup);
   bindToggle("toggle-robot", () => S.robot);
-  bindToggle("toggle-ref", () => S.refGroup);
+  // ASA stage stepper: click to overlay a stage; click the active one to hide.
+  document.querySelectorAll("#asa-stage-controls .asa-step-btn").forEach((b) =>
+    b.addEventListener("click", () => {
+      const idx = Number(b.dataset.asaStage);
+      showAsaStage(S && S.asaStage === idx ? -1 : idx);
+    }));
   function applyToggles() {
-    for (const id of ["toggle-mesh","toggle-cells","toggle-path","toggle-robot","toggle-ref"]) {
+    for (const id of ["toggle-mesh","toggle-cells","toggle-path","toggle-robot"]) {
       const cb = $(id); if (cb) cb.dispatchEvent(new Event("change"));
     }
   }
@@ -541,6 +637,33 @@ async function boot() {
     return new THREE.Mesh(tube, new THREE.MeshStandardMaterial({
       color, roughness: 0.4, transparent: opacity < 1, opacity,
       emissive: emissive ? color : 0x000000, emissiveIntensity: emissive ? 0.5 : 0 }));
+  }
+  // dedupe consecutive positions so the Catmull-Rom tube does not degenerate
+  // where the path holds position while rotating in place (initial/second A*).
+  function tubePoints(path, zoff) {
+    const pts = [];
+    if (!path) return pts;
+    for (const p of path) {
+      const v = [p.x, p.y, p.z + zoff], last = pts[pts.length - 1];
+      if (!last || Math.hypot(v[0]-last[0], v[1]-last[1], v[2]-last[2]) > 1e-4) pts.push(v);
+    }
+    return pts;
+  }
+  // small cones along a path, each pointing along its waypoint yaw
+  function headingArrows(path, color) {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4 });
+    const geo = new THREE.ConeGeometry(0.07, 0.2, 12);
+    const stride = Math.max(1, Math.floor(path.length / 28));
+    for (let i = 0; i < path.length; i += stride) {
+      const p = path[i];
+      const cone = new THREE.Mesh(geo, mat);
+      cone.position.set(p.x, p.y, p.z + 0.14);
+      cone.rotation.z = (p.yaw || 0) - Math.PI / 2; // cone axis +Y -> heading
+      g.add(cone);
+    }
+    g.renderOrder = 4;
+    return g;
   }
   function setHint(t) { const e = $("query-hint"); if (e) e.textContent = t; }
   function setLoading(t) {
