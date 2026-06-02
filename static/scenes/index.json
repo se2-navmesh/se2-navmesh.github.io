@@ -2,37 +2,37 @@
   {
     "id": "00114-Coer9RdivP7",
     "dir": "00114",
-    "name": "00114 — Multi-level home (staircase)",
-    "blurb": "Two floors joined by a staircase; the configured query climbs ~2.9 m between levels."
-  },
-  {
-    "id": "00473-xccdSFAEPau",
-    "dir": "00473",
-    "name": "00473 — Multi-level (split floors)",
-    "blurb": "A multi-level scene; the configured query changes floor by ~3.4 m of height."
-  },
-  {
-    "id": "00654-VZy9kKQJcUF",
-    "dir": "00654",
-    "name": "00654 — Large single floor",
-    "blurb": "A large single-floor scene with a long ~20 m start-to-goal traverse."
-  },
-  {
-    "id": "00700-aosjAwX5Lnq",
-    "dir": "00700",
-    "name": "00700 — Apartment",
-    "blurb": "A single-floor apartment; the configured query runs ~10 m across rooms."
+    "name": "00114—Garage",
+    "blurb": ""
   },
   {
     "id": "00403-t3t9ofFLcFU",
     "dir": "00403",
-    "name": "00403 — Single-floor home",
-    "blurb": "A single-floor home; the configured query crosses ~7 m between rooms."
+    "name": "00403—Store",
+    "blurb": ""
+  },
+  {
+    "id": "00473-xccdSFAEPau",
+    "dir": "00473",
+    "name": "00473—Gym",
+    "blurb": ""
+  },
+  {
+    "id": "00654-VZy9kKQJcUF",
+    "dir": "00654",
+    "name": "00654—Forum",
+    "blurb": ""
+  },
+  {
+    "id": "00700-aosjAwX5Lnq",
+    "dir": "00700",
+    "name": "00700—Studio",
+    "blurb": ""
   },
   {
     "id": "00797-99ML7CGPqsQ",
     "dir": "00797",
-    "name": "00797 — Compact home",
-    "blurb": "A compact single-floor home with an ~8 m start-to-goal query."
+    "name": "00797—Apartment",
+    "blurb": ""
   }
 ]

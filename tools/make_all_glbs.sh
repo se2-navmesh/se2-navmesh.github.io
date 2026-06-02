@@ -23,6 +23,6 @@ for entry in "${SCENES[@]}"; do
   if [ -f "$out" ]; then echo "SKIP $full (glb exists)"; continue; fi
   if [ ! -f "$src" ]; then echo "MISSING $src"; continue; fi
   echo "=== GLB $full ==="
-  "$HERE/make_scene_glb.sh" "$src" "$out" 0.3 512 80 "/home/kaixqu/workspaces/objectnav_ws/src/mesh/$obj"
+  "$HERE/make_scene_glb.sh" "$src" "$out" 1.0 2048 20 "/home/kaixqu/workspaces/objectnav_ws/src/mesh/$obj"
 done
 echo "ALL_GLBS_DONE"

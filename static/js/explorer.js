@@ -88,15 +88,35 @@ async function boot() {
 
   // ── load + build one scene ──────────────────────────────────────
   async function loadScene(meta) {
-    setLoading("Loading " + meta.name + " …");
+    const progress = { json: 0, glb: 0, field: 0 };
+    const updateProgress = () => {
+      const pct = Math.min(99, Math.round(progress.json + progress.glb + progress.field));
+      setLoading("Loading " + meta.name + " … " + pct + "%");
+    };
+    updateProgress();
     if (S) { world.remove(S.group); disposeGroup(S.group); }
 
     const base = "./static/scenes/" + meta.dir + "/";
+    const sceneJson = fetch(base + "scene.json")
+      .then((r) => r.json())
+      .then((v) => { progress.json = 5; updateProgress(); return v; });
+    const sceneGltf = gltfLoader.loadAsync(base + "scene.glb", (xhr) => {
+      if (xhr.lengthComputable && xhr.total > 0) {
+        progress.glb = Math.min(80, (xhr.loaded / xhr.total) * 80);
+      } else {
+        progress.glb = Math.max(progress.glb, 8);
+      }
+      updateProgress();
+    }).then((v) => { progress.glb = 80; updateProgress(); return v; });
+    const fieldBin = fetch(base + "field.bin")
+      .then((r) => r.arrayBuffer())
+      .then((v) => { progress.field = 15; updateProgress(); return v; });
     const [scene, gltf, fieldBuf] = await Promise.all([
-      fetch(base + "scene.json").then((r) => r.json()),
-      gltfLoader.loadAsync(base + "scene.glb"),
-      fetch(base + "field.bin").then((r) => r.arrayBuffer()),
+      sceneJson,
+      sceneGltf,
+      fieldBin,
     ]);
+    setLoading("Preparing " + meta.name + " …");
 
     const group = new THREE.Group();
     world.add(group);
