@@ -1069,9 +1069,7 @@ async function boot() {
   }
 
   function replan() {
-    S.markers.clear();
-    if (startPt) S.markers.add(poseArrow(startPt, COL.start));
-    if (goalPt) S.markers.add(poseArrow(goalPt, COL.goal));
+    drawQueryMarkers();
 
     if (!startPt || !goalPt) {
       S.lastPlanDebug = null;
@@ -1103,6 +1101,16 @@ async function boot() {
     showAsaStage(S.asaStage);
     updateRouteControls();
     setRobotAt(S.t);
+  }
+
+  function drawQueryMarkers(draftPose) {
+    if (!S || !S.markers) return;
+    S.markers.clear();
+    const draftTarget = poseDrag && poseDrag.target;
+    const startPose = draftTarget === "start" ? draftPose : startPt;
+    const goalPose = draftTarget === "goal" ? draftPose : goalPt;
+    if (startPose) S.markers.add(poseArrow(startPose, COL.start));
+    if (goalPose) S.markers.add(poseArrow(goalPose, COL.goal));
   }
 
   function drawRoute(route, message) {
@@ -1367,6 +1375,7 @@ async function boot() {
     if (renderer.domElement.hasPointerCapture(e.pointerId)) {
       renderer.domElement.releasePointerCapture(e.pointerId);
     }
+    drawQueryMarkers();
     disarmPoseTool("Pose edit cancelled. Click Set Start or Set Goal to try again.");
   });
 
@@ -1394,9 +1403,7 @@ async function boot() {
       yaw: normalizeYaw(yaw),
     };
     pose.layer = yawToLayer(pose.yaw);
-    if (poseDrag.target === "start") startPt = pose;
-    else goalPt = pose;
-    replan();
+    drawQueryMarkers(pose);
   }
 
   // ── UI wiring ───────────────────────────────────────────────────
