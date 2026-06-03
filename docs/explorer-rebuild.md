@@ -1,266 +1,358 @@
 # Rebuilding the Interactive Path-Planning Explorer
 
-This documents the May 2026 from-scratch rebuild of the `#explorer` section of
-`se2-navmesh.github.io`, the full data pipeline behind it, and how to reproduce,
-extend, and verify it. It is meant as a hand-off so the website can be improved
-later without re-deriving any of this.
+This document records the May/June 2026 rebuild of the `#explorer` section of
+`se2-navmesh.github.io`: what the Explorer shows, which static assets feed it,
+how browser-side ASA planning now works, and how to regenerate and validate the
+scene bundle.
 
-## 1. Why it was rebuilt
+The important current state is simple:
+
+- the textured scene, traversability field, final polygon graph, and browser
+  planned path are all displayed in the same Z-up navmesh frame;
+- `field.bin` is now a visualization overlay only;
+- `polyfield.bin` / `polyfield.json` are the route-planning graph;
+- `scene.json` stores metadata and configured start/goal, but no longer stores
+  `referencePath`;
+- paths are computed online in the browser with a polygon-level ASA pipeline.
+
+## 1. Why It Was Rebuilt
 
 The previous explorer had three structural problems:
 
-- **It didn't show the environment.** The mesh was cropped to a ~1 m-wide ribbon
-  of upward-facing triangles hugging one path, so you saw a floating sliver of
-  floor, not a place.
-- **The "SE(2)" idea was invisible.** The navmesh was drawn as a flat, uniformly
-  light-blue triangle soup. Yaw-dependent traversability — the entire point of the
-  paper — was nowhere on screen, even though the intro text promised a yaw slider.
-- **There was no planning.** Despite the title, it scrubbed a single pre-baked path.
+- **It did not show the environment.** The mesh was cropped to a narrow ribbon of
+  floor near one path, so the viewer did not communicate place or scale.
+- **Yaw-dependent traversability was hidden.** The old SE(2) overlay looked like
+  a flat blue triangle soup even though the paper's core idea is footprint/yaw
+  feasibility.
+- **The path was pre-baked.** The old interaction scrubbed a stored route instead
+  of computing a path from the scene data.
 
-## 2. What the new explorer does
+The rebuild turns the Explorer into a real static-web demo: the browser loads
+ROS-generated scene assets and computes a yaw-aware route live.
 
-Per scene (selectable, 6 HM3D scenes):
+## 2. What the Explorer Does
 
-1. **Textured environment** — the real HM3D `.glb`, decimated + meshopt-compressed,
-   baked into the navmesh coordinate frame.
-2. **Yaw-dependent traversability field** — a colored carpet of surface cells, drawn
-   binary: **safe** (fits at every heading) vs **restricted** (fits at only some).
-   This makes the paper's core claim tangible. The layer is available through the
-   `Traversability field` checkbox, but it is off by default so the textured scene
-   and final polygon graph are the first visual signal.
-3. **Final SE(2) NavMesh polygons** — a toggleable overlay of the Detour polygon
-   graph exported by `se2_navmesh_static`, drawn as uniform semi-transparent blue
-   polygons with light-blue outlines. The layer is enabled by default alongside
-   the scene mesh and traversability field.
-4. **Start/goal inspection markers** — the configured start and goal are shown as
-   editable pose arrows, but route computation is currently disabled. The pose tool
-   mirrors `se2_navmesh_rviz_plugin`'s `StartYawTool` / `GoalYawTool`: click
-   **Set Start** or **Set Goal** to arm a one-shot edit, press on the scene to set
-   `(x,y,z)`, drag to set yaw, and release to commit the pose. Start uses a green
-   arrow; goal uses a red arrow. The arrow display origin is raised by
-   `scene.json`'s `agent.height / 2` so it appears at the robot body height while
-   preserving the actual pose `z`. Clicking the armed button again cancels the
-   pending edit, which leaves normal left-drag orbit controls available.
+Per scene, the Explorer loads and displays:
 
-### Current feature status
+1. **Textured environment**: the real HM3D `.glb`, decimated and
+   meshopt-compressed, baked into the navmesh coordinate frame.
+2. **Yaw-dependent traversability field**: an optional safe/restricted carpet of
+   span cells from `field.bin`. Safe means the robot fits at every heading;
+   restricted means it fits at only some headings.
+3. **Final SE(2) NavMesh polygons**: the exported Detour polygon graph from
+   `polyfield.bin`, drawn as semi-transparent blue polygons with light outlines.
+4. **Editable start/goal pose arrows**: click **Set Start** or **Set Goal**, then
+   left-drag on the scene to set position and yaw. The arrows are raised by
+   `agent.height / 2` for display, while the stored pose `z` remains on the
+   navmesh surface.
+5. **Browser-computed ASA path**: the configured query is planned on load, and
+   every pose edit replans immediately.
 
-The old **Planned path**, **Robot footprint**, and **ASA reference (ROS)** features
-were commented out in June 2026 because they no longer match the Explorer design
-target. The old browser route used a span-cell lattice A\* over `field.bin`, while
-the intended Explorer planner should use the exported Detour polygon graph in
-`polyfield.bin` and reproduce the polygon-level ASA semantics of
-`se2_navmesh_static`. The disabled code remains in `static/js/explorer.js`,
-`index.html`, and `tools/preview_harness.html` with comments naming the affected
-feature.
+The path tube is also raised by `scene.json`'s `agent.height / 2`, so the drawn
+route appears at robot-body height instead of lying directly on the floor.
 
-The active start/goal tool is separate from the disabled robot-footprint feature:
-the arrows visualize query poses only and do not imply that route computation or
-robot footprint sweeping has been re-enabled.
+The robot footprint sweep/playback remains commented out. It can be re-enabled
+later using the browser-computed route, but it is not part of the current UI.
 
-## 3. Architecture / data flow
+## 3. Architecture and Data Flow
 
-Offline pipelines produce five static files per scene; the web app
-consumes them. Everything stays in **one coordinate frame** (the navmesh / OBJ frame,
-Z-up), so nothing is transformed at runtime.
+Offline pipelines produce the static files consumed by `static/js/explorer.js`.
+Everything stays in the navmesh / OBJ frame, which is Z-up.
 
-```
- HM3D .glb (workspaces/data, 21-66 MB)         mesh/<id>.obj  (navmesh source, Z-up)
-         |                                               |
-         | blender_export_scene.py                       |  recast config (identity TRS)
-         |   1. rotate (x,y,z) -> (-x,-z,-y)              v
-         |   2. auto-align yaw to OBJ (0 or 180 deg)   se2_navmesh_static
-         |   3. export Z-up (export_yup=False)         (web_export_field.launch:
-         v                                              store_span_data + display_span_area)
-  glb_shrink_textures.py  (PIL: downscale embedded JPEGs)        |
-         |                                               | export_field.py
-         | gltfpack  (-si simplify + -c meshopt)         |   (scrape latched markers)
-         v                                               v
-  static/scenes/<dir>/scene.glb  <---- same Z-up navmesh frame ---->  field.bin + scene.json
-                                                         |
-                                                         |  map_input_polygon_export.launch
-                                                         |  ExportNavMeshPolygons.srv
-                                                         v
-                                                    polyfield.bin + polyfield.json
-                         \                                          /
-                          \                                        /
-                           v                                      v
-                         static/js/explorer.js  (Three.js GLTFLoader + MeshoptDecoder,
-                          instanced safe/restricted field, polygon overlay;
-                          legacy span-cell planner commented out)
+```text
+ HM3D .glb                                      mesh/<id>.obj
+    |                                               |
+    | blender_export_scene.py                       | recast config
+    |   rotate/align to OBJ frame                   v
+    v                                         se2_navmesh_static
+ glb_shrink_textures.py                            / \
+    |                                             /   \
+ gltfpack                                      field   polygon graph
+    |                                           export  export
+    v                                             |       |
+ static/scenes/<dir>/scene.glb                    |       |
+                                                  v       v
+                                      field.bin + scene.json
+                                             polyfield.bin + polyfield.json
 ```
 
-`field.bin` is a flat little-endian array of `[float32 x, y, z, uint32 mask]` per
-walkable surface cell; the low `yawBits` (=20) bits of `mask` are the feasible
-headings over `[0, pi)` (the cuboid footprint is 180-deg symmetric, so heading `L`
-and `L+bits` share feasibility). `scene.json` carries agent dims, yaw-layer info,
-bounds, the configured start/goal, and the ASA reference path. The current Explorer
-loads this metadata, but the ASA reference display is commented out.
+The browser loads:
 
-`polyfield.bin` is the final Detour polygon graph, exported directly from
-`dtNavMesh`. `polyfield.json` is its small sidecar with format, coordinate frame,
-counts, bounds, and section metadata. The binary contains:
+- `scene.glb` for textured rendering;
+- `field.bin` for the optional traversability overlay;
+- `scene.json` for agent parameters, bounds, yaw metadata, and configured query;
+- `polyfield.bin` / `polyfield.json` for polygon display and planning.
+
+## 4. Scene Asset Format
+
+Each `static/scenes/<dir>/` contains:
+
+- `scene.glb`
+- `field.bin`
+- `scene.json`
+- `polyfield.bin`
+- `polyfield.json`
+
+`scene.json` currently contains:
+
+- `field`: record layout, counts, cell size, yaw bits, yaw step, bounds;
+- `agent`: length, width, height, climb/slope limits;
+- `start`: configured `{ x, y, z, layer }`;
+- `goal`: configured `{ x, y, z, layer }`.
+
+`referencePath` has been removed from all scene JSON files. The Explorer does
+not depend on a ROS reference path at runtime.
+
+`field.bin` is a flat little-endian array of:
+
+```text
+float32 x, y, z
+uint32 mask
+```
+
+The low `yawBits` bits of `mask` encode feasible headings over `[0, pi)`. The
+robot footprint is 180-degree symmetric, so layer `L` and `L + yawBits` share the
+same mask bit.
+
+`polyfield.bin` is a compact Detour polygon graph snapshot. It contains:
 
 - header: magic/version/yaw metadata/counts;
-- global vertices in ROS/navmesh coordinates;
+- global polygon vertices in navmesh coordinates;
 - polygon records with `dtPolyRef`, vertex range, neighbor range, yaw mask, area,
   flags, tile ids, and centroid;
-- a packed polygon vertex-index table;
-- adjacency records with neighbor polygon id, neighbor ref, edge id, and portal
-  endpoints.
+- polygon index buffer;
+- directed adjacency records with neighbor compact id, neighbor `dtPolyRef`, edge
+  id, and clipped portal endpoints.
 
-The current explorer uses the polygon vertices and indices for display. The exported
-neighbor records are intentionally kept for future polygon-level browser planning.
+`NavMeshPolygonExporter` exports Detour-equivalent clipped portal endpoints. The
+browser funnel uses the endpoint order as written: `portalA` is left and
+`portalB` is right in the browser XY funnel frame.
 
-## 4. File inventory
+## 5. Browser Planner
+
+The active planner is in `static/js/explorer.js`. It follows the same high-level
+sequence as `RecastPlannerRos::queryMultiLayer`:
+
+1. layer-sensitive nearest-poly lookup for start;
+2. layer-sensitive nearest-poly lookup for goal;
+3. first A* over polygon-edge/yaw states;
+4. corridor extraction and yaw-mask-aware compression;
+5. Detour-style string pulling with all portal crossings;
+6. crossing-map construction keyed by `fromRef:toRef`;
+7. second A* constrained by the crossing map;
+8. final SE(2) route output and display.
+
+The planner keeps compact polygon ids for array indexing, but planning keys and
+debug output use original Detour `dtPolyRef` values wherever comparison with ROS
+matters.
+
+### 5.1 Query Snapping
+
+Start and goal layers are exact 1-based yaw layers. The browser does not snap a
+pose to a different yaw layer.
+
+`findNearestPolyMultiLayerWeb()` searches polygons whose bounds overlap the
+configured search extent, rejects polygons that do not support the requested
+layer, computes the closest point on each candidate polygon, and rejects nearest
+points outside the search extent.
+
+### 5.2 A* State
+
+The A* state is:
+
+```text
+(polyA, polyB, yawLayer, position)
+```
+
+where:
+
+- `polyA == polyB` means a same-polygon node;
+- first-pass edge nodes are unordered and sorted by original `dtPolyRef`;
+- second-pass edge nodes are ordered `from -> to`;
+- same-polygon node keys include position;
+- edge node keys do not include position, matching Detour node-pool identity more
+  closely.
+
+Yaw transitions check the circular lower/upper layers and cost
+`singleYawLayerCost`. Spatial transitions use directional translation cost:
+
+```text
+dist * abs(cos(moveYaw - headingYaw)) * unitLonDistCost
++ dist * abs(sin(moveYaw - headingYaw)) * unitLatDistCost
+```
+
+The displayed `fwd`, `lat`, and `turn` stats are route summaries, not the raw A*
+cost. They split each final route segment into forward/lateral distance relative
+to the segment's starting yaw and accumulate circular yaw deltas.
+
+### 5.3 Corridor and String Pulling
+
+After the first A* succeeds, the browser:
+
+1. extracts a polygon path from the `(polyA, polyB)` chain;
+2. compresses `A, B, A` patterns only when polygon `A` is safe at every yaw bit;
+3. runs a Detour-style funnel over the corridor;
+4. appends all portal crossings, not just visible corners;
+5. builds `crossingMap[fromRef:toRef] = crossingPosition`.
+
+`segmentPortalIntersection2D()` computes the 2D intersection and interpolates the
+final crossing point along the portal, mirroring Detour's `dtVlerp(left, right,
+t)` behavior.
+
+The second A* expands only along crossing-map edges and uses those string-pulled
+crossing positions instead of raw portal midpoints.
+
+### 5.4 Debug Output
+
+Every plan stores debug output in:
+
+- `window.__se2ExplorerLastPlanDebug`;
+- `S.lastPlanDebug` inside the Explorer closure;
+- hidden `<pre id="plan-debug-json">` in `tools/preview_harness.html`.
+
+The debug object records snapped refs/positions/layers, first-stage ref/layer
+nodes, compressed corridor refs, crossing-map entries, and second-stage ref/layer
+nodes.
+
+## 6. File Inventory
 
 **Web app**
-- `static/js/explorer.js` — the viewer, traversability field, and polygon overlay.
-  The legacy span-cell lattice-A\* planner, route display, robot footprint sweep,
-  and ROS ASA reference display are commented out pending polygon-level ASA.
-- `index.html` (`#explorer` section) + `static/css/index.css` (legend swatches).
-- `static/scenes/index.json` — scene list (`dir`, `id`, `name`, `blurb`).
-- `static/scenes/<dir>/{scene.glb, field.bin, scene.json, polyfield.bin, polyfield.json}` — per-scene assets.
 
-**Mesh pipeline (no ROS)**
-- `tools/blender_probe_bounds.py` — print a glb's bounds; used to derive the
-  HM3D->navmesh rotation.
-- `tools/blender_export_scene.py` — import glb, apply the rotation, **auto-align yaw to
-  the OBJ**, optional crop/decimate, export Z-up.
-- `tools/glb_shrink_textures.py` — PIL downscale of embedded textures + buffer repack
-  (Blender 2.82's exporter re-emits original-res images, so we resize here).
-- `tools/bin/gltfpack` — meshopt compressor/simplifier (built from source).
-- `tools/build_gltfpack.sh` — build `tools/bin/gltfpack` from meshoptimizer.
-- `tools/make_scene_glb.sh` — run the three steps for one scene.
-- `tools/make_all_glbs.sh` — batch over all scenes (scene table inside).
+- `static/js/explorer.js`: viewer, traversability overlay, polygon graph display,
+  browser ASA planner, path display, pose tools.
+- `index.html`: main page and Explorer markup.
+- `static/css/index.css`: Explorer layout and controls.
+- `static/scenes/index.json`: scene list.
+- `static/scenes/<dir>/...`: per-scene assets.
 
-**Field pipeline (ROS)**
-- `tools/web_export_field.launch` — build the SE(2) NavMesh headless with span +
-  per-cell area (yaw bitmask) publishing enabled; parametrized per scene.
-- `tools/export_field.py` — subscribe to the latched span-area markers + planner
-  mission, write `field.bin` + `scene.json`.
-- `tools/export_all_fields.sh` — batch over all scenes (launch node, export, tear down).
+**Mesh pipeline**
 
-**Polygon graph pipeline (ROS)**
-- `se2_navmesh_ros/launch/map_input_polygon_export.launch` — build a scene and export
-  `polyfield.bin` + `polyfield.json`.
-- `se2_navmesh_ros/utils/NavMeshPolygonExporter` — reusable C++ exporter that reads
-  final `dtNavMesh` tiles, polygons, links, masks, and portal edges.
-- `se2_navmesh_msgs/ExportNavMeshPolygons.srv` — service used by
-  `se2_navmesh_static` for on-demand polygon graph export.
+- `tools/blender_probe_bounds.py`: inspect GLB bounds.
+- `tools/blender_export_scene.py`: import GLB, align to OBJ/navmesh frame, export
+  Z-up GLB.
+- `tools/glb_shrink_textures.py`: downscale embedded textures.
+- `tools/bin/gltfpack`: meshopt compressor/simplifier.
+- `tools/build_gltfpack.sh`: build `gltfpack`.
+- `tools/make_scene_glb.sh`: build one `scene.glb`.
+- `tools/make_all_glbs.sh`: batch GLB generation.
+
+**Field pipeline**
+
+- `tools/web_export_field.launch`: build the SE(2) NavMesh with span data and
+  area-marker publishing enabled.
+- `tools/export_field.py`: write `field.bin` and `scene.json`.
+- `tools/export_all_fields.sh`: batch field export.
+
+**Polygon graph pipeline**
+
+- `se2_navmesh_ros/launch/map_input_polygon_export.launch`: build a scene and
+  export `polyfield.bin` / `polyfield.json`.
+- `se2_navmesh_ros/utils/NavMeshPolygonExporter`: C++ Detour graph exporter.
+- `se2_navmesh_msgs/ExportNavMeshPolygons.srv`: on-demand polygon export service.
 
 **QA / preview**
-- `tools/verify_scenes.py` — for every scene: field record count vs `scene.json`,
-  glb world-AABB vs field footprint (catches mis-rotation), and a path for the
-  configured query (mirrors the JS planner). Exits non-zero on any failure.
-- `tools/preview_harness.html` — minimal explorer-only page (`?scene=<dir>`), for
-  quick single-scene testing and reliable headless screenshots.
-- `tools/screenshot_scene.sh` — headless-Chrome screenshot of one scene.
 
-## 5. Reproduce / extend
+- `tools/preview_harness.html`: minimal Explorer-only page.
+- `tools/validate_explorer_paths.sh`: headless-Chrome browser ASA sweep.
+- `tools/screenshot_scene.sh`: headless-Chrome screenshot of one scene.
+- `tools/verify_scenes.py`: legacy scene/field QA. Treat planner-specific logic
+  there as historical unless it is updated to the polygon ASA implementation.
+
+## 7. Regenerate Assets
 
 Regenerate every scene from scratch:
 
 ```bash
-tools/build_gltfpack.sh          # once, if tools/bin/gltfpack is missing/incompatible
-tools/make_all_glbs.sh           # textured scene.glb for every scene (skips existing)
+tools/build_gltfpack.sh
+tools/make_all_glbs.sh
 source <ws>/devel/setup.bash
-tools/export_all_fields.sh       # field.bin + scene.json for every scene (skips existing)
-# Use map_input_polygon_export.launch, or the ~export_navmesh_polygons service,
-# to regenerate polyfield.bin + polyfield.json for each scene.
-python3 tools/verify_scenes.py   # QA all scenes
+tools/export_all_fields.sh
+# Then regenerate polyfield.bin + polyfield.json for each scene with:
+#   se2_navmesh_ros/launch/map_input_polygon_export.launch
+# or the ~export_navmesh_polygons service.
 ```
 
-Add a new scene:
+For one polygon graph export, use the launch file directly:
 
-1. Add it to the `SCENES` table in **both** `make_all_glbs.sh` and
-   `export_all_fields.sh` as `dir:hash:objname` / `dir:id:objname`. (The OBJ name
-   may differ from the scene id — some workspace meshes carry a `_1` suffix.)
-2. It needs an HM3D glb in `workspaces/data/hm3d-train-glb-v0.2/<id>/`, a recast
-   config and a `_start_goal_hard.yaml` under `se2_navmesh_ros[_testing]/config/`,
-   and the navmesh OBJ in `mesh/`.
-3. Run the two batches, add an entry to `static/scenes/index.json`, and verify.
+```bash
+roslaunch se2_navmesh_ros map_input_polygon_export.launch \
+  mesh_file_path:=/path/to/<scene>.obj \
+  recast_config:=/path/to/<scene>.yaml \
+  agent_config:=/path/to/anymal_params.yaml \
+  start_goal_config:=/path/to/<scene>_start_goal_hard.yaml \
+  polygon_graph_output_dir:=/path/to/static/scenes/<dir> \
+  polygon_graph_file_stem:=polyfield
+```
 
-## 6. Coordinate frames & alignment (gotchas)
+After regenerating assets, validate the browser planner:
 
-- The navmesh, path, and field live in the **OBJ frame** (Z-up; all scenes use
-  identity recast TRS).
-- The HM3D glb, after Blender's glTF import, maps to the OBJ frame by
-  **`(x,y,z) -> (-x,-z,-y)`** (a proper rotation, derived by matching vertex bounds).
-- **The HM3D->OBJ export is not consistent across scenes:** some scenes (00403,
-  00700) are additionally rotated **180 deg about Z** relative to the others. So
-  `blender_export_scene.py` does not trust a fixed transform — given `--obj`, it
-  picks the Z-rotation (0/90/180/270) whose AABB best matches the OBJ. `verify_scenes.py`
-  re-checks this by comparing the glb's world AABB to the field footprint.
-- Blender exports with `export_yup=False` (keeps Z-up), and Three.js renders with
-  `camera.up=(0,0,1)`, so the glb and field overlay with **no runtime transform**.
+```bash
+tools/validate_explorer_paths.sh
+tools/validate_explorer_paths.sh 00403
+```
 
-## 7. Disabled legacy planner
+In sandboxed environments, headless Chrome may need to run outside the sandbox
+because crashpad/WebGL use sockets and helper processes.
 
-The following span-cell planner is no longer active in the Explorer. Its code is
-commented out in `static/js/explorer.js` under **Disabled feature: Planned path**
-comments. It is kept only as implementation history and as a reference while the
-browser planner is rebuilt on `polyfield.bin`.
+## 8. Current Browser Validation
 
-The legacy planner used lattice A\* over nodes `(cell, headingLayer)`,
-`headingLayer in [0, 2*bits)`:
+`tools/validate_explorer_paths.sh` starts a local HTTP server, opens the preview
+harness in headless Chrome, reads `plan-debug-json`, and prints path statistics.
 
-- **Rotate in place**: `(c,L) -> (c,L±1)` if cell `c` is feasible at `L±1`.
-- **Translate, optionally turning ±1 layer while stepping**: from a feasible `(c,L)`
-  to a spatial neighbour `j` at layer `L+dL`, `dL in {-1,0,+1}`, if `j` is feasible at
-  that layer. Spatial neighbours are the 8-neighbourhood with `|Δz| <= maxClimb`.
+Current configured-query results:
 
-The translate-and-turn edge is essential: stair landings are a *patchwork* of cells
-each feasible only at a narrow heading band, and pure translate-then-rotate cannot
-cross a cell whose feasible headings don't overlap its neighbour's.
+```text
+scene   | length  | startRef | goalRef | corridor | crossings | nodes
+00114   | 10.76 m | 4456461  | 6291473 | 61       | 60        | 106
+00403   | 7.48 m  | 4620293  | 4948015 | 91       | 90        | 130
+00473   | 19.12 m | 5668900  | 5472272 | 151      | 150       | 205
+00654   | 33.19 m | 5308429  | 4349959 | 142      | 141       | 190
+00700   | 13.08 m | 4833298  | 5914633 | 76       | 75        | 101
+00797   | 12.07 m | 5046274  | 6160388 | 51       | 50        | 68
+```
 
-**Cost = traversal time**, mirroring the paper (`Method.tex` eq. 6-7) and the C++
-ASA planner (`se2_navmesh_ros_testing/src/utils/testing_utils.cpp`). A translation
-holding heading `psi` is split into longitudinal / lateral components and charged
-`1/v_long` and `1/v_lat` per metre; an in-place yaw step costs `yawStep/omega`. With
-the default `anymal` params (`v_long=0.5`, `v_lat=0.1`, `omega=0.5`), **sideways
-motion is 5x dearer than forward**, so the planned path prefers to face the way it
-travels instead of strafing. Params come from `scene.json`'s `agent` block when
-present, else these defaults. The heuristic is the straight-line distance to the goal
-scaled by the cheapest per-metre cost (`min(1/v_long, 1/v_lat)`), keeping A\*
-admissible.
+For `00114`, the browser snap refs and path length match the ROS verbose export
+baseline:
 
-The traversability carpet is drawn as a **binary safe/restricted** field (safe = fits
-at every heading, restricted = fits at only some); the exporter drops cells feasible
-at no heading, so there is no third "blocked" state and no heading slider. The
-checkbox is unchecked by default, and `explorer.js` applies that checkbox state after
-each scene load so the field remains hidden until explicitly enabled.
+```text
+startRef = 4456461
+goalRef  = 6291473
+Path length = 10.76
+```
 
-The `SE(2) NavMesh` checkbox displays the final polygon graph from `polyfield.bin`.
-It is checked by default, and `explorer.js` applies the checkbox state directly when
-each scene finishes loading, so the polygon overlay appears on first load as well as
-after scene changes. Polygon faces are always semi-transparent blue; the display does
-not color polygons by yaw mask.
+## 9. Coordinate Frames and Alignment
 
-The currently displayed Explorer therefore does **not** compute or display a path,
-does **not** animate the robot footprint, and does **not** draw the ROS ASA reference
-path. The old UI controls and JavaScript hooks for those features are commented out
-with feature-specific labels.
+- Navmesh, polygon graph, field, poses, and browser path live in the OBJ/navmesh
+  frame, Z-up.
+- HM3D GLBs are rotated into that frame offline by `blender_export_scene.py`.
+- Some scenes need an additional 180 degree yaw alignment. The Blender exporter
+  uses OBJ bounds to choose the best alignment.
+- Three.js renders with `camera.up = (0, 0, 1)`, so scene mesh, field, polygons,
+  markers, and path overlay with no runtime frame transform.
 
-## 8. Known limitations / future ideas
+## 10. Known Boundaries
 
-- **Textures** are JPEG at 512 px (the ~2.5 MB floor per scene). KTX2/Basis (build
-  gltfpack with basisu, add `KTX2Loader` + transcoder) would roughly halve size and
-  sharpen them.
-- **Planner fidelity** — the next active planner should use the exported Detour
-  polygon graph for browser-side polygon-level ASA. The old span-cell planner is
-  commented out because it does not match that target.
-- **Cell rendering** is one `InstancedMesh` of quads; fine to ~15 k cells. Larger
-  scenes may want a merged colored mesh.
-- Start/goal snapping is a brute-force nearest-cell scan (fine at <16 k cells).
+- The browser graph is a compact Detour export, not a full Detour navmesh. Closest
+  point and boundary operations are browser-side geometry approximations over the
+  exported polygons.
+- JavaScript bitwise mask handling assumes current `yawBits = 20`; masks with 32
+  or more bits need a different representation.
+- The Explorer validates configured scene queries. Interactive user-placed poses
+  should be spot-checked after changing snapping, cost, or string-pulling logic.
+- Robot footprint sweep/playback is still disabled.
 
-## 9. Environment notes (this workspace)
+## 11. Environment Notes
 
-- Run the ROS node as a **background task**, not foreground (long-lived ROS children
-  hold the stdout pipe and trip the tool timeout). Tear down with the task manager,
-  not `pkill`.
-- The login shell has `set -e`; guard scripts/commands (`set +e` / `|| true`) so a
-  non-matching `pkill`/`grep` doesn't abort everything.
-- Never `pkill -f <pattern>` where the pattern appears in the command's own path —
-  it kills the running shell. Use `pkill -x <procname>`.
-- `tools/bin/gltfpack` is built locally because the upstream release binaries need a
-  newer glibc than Ubuntu 20.04.
+- Local preview:
+
+  ```bash
+  cd se2-navmesh.github.io
+  python3 -m http.server 8020
+  # open http://127.0.0.1:8020/tools/preview_harness.html?scene=00403
+  ```
+
+- `tools/bin/gltfpack` is built locally because upstream release binaries may
+  require a newer glibc than Ubuntu 20.04.
+- When running ROS export nodes as background tasks, tear down ROS children
+  carefully; avoid broad `pkill -f` patterns that can match the shell command
+  itself.

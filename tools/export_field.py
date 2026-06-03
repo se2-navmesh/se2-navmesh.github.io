@@ -7,10 +7,12 @@ writes, into <scene_dir>:
   field.bin   little-endian records [float32 x, y, z, uint32 mask] per surface
               cell; `mask` low bits are the feasible yaw layers over [0, pi)
               (the footprint is 180-deg symmetric, so layer L and L+bits share
-              feasibility).  This is the SE(2) traversability field used for
-              both the yaw slider and live planning.
-  scene.json  metadata: agent, yaw layers, bounds, configured start/goal, and a
-              reference ASA path (continuous yaw) for sanity/seed.
+              feasibility). This is a span-level SE(2) traversability field
+              used by the Explorer as an explanatory safe/restricted overlay.
+              It is not the final Detour polygon graph and is not the active
+              route-planning substrate; browser planning should use
+              polyfield.bin/polyfield.json.
+  scene.json  metadata: agent, yaw layers, bounds, and configured start/goal.
 
 Run (after the node is up; topics are latched so order does not matter):
   rosrun is not needed -- just: python3 tools/export_field.py --scene-dir <dir>
@@ -23,7 +25,6 @@ import sys
 
 import rospy
 from visualization_msgs.msg import Marker, MarkerArray
-from se2_navmesh_msgs.msg import SE2Path
 
 NODE = "/se2_navmesh_static_web_export"
 
@@ -46,8 +47,6 @@ def main():
     rospy.init_node("se2_web_field_exporter", anonymous=True)
 
     span_area = wait(NODE + "/navigation_mesh_span_area", MarkerArray, args.timeout)
-    mission = wait("/se2navmesh_mission", SE2Path, args.timeout)
-
     bits = int(get("num_yaw_layers_pi", 20))
     layer_mask = (1 << bits) - 1
     cell_size = float(get("cell_size", 0.1))
@@ -83,17 +82,6 @@ def main():
     with open(args.scene_dir + "/field.bin", "wb") as f:
         f.write(cells)
 
-    # --- reference path (continuous yaw) ---
-    path = []
-    last = None
-    for w in mission.points:
-        cur = (round(w.x, 4), round(w.y, 4), round(w.z, 4), round(w.yaw, 5))
-        if cur == last:
-            continue
-        path.append({"x": cur[0], "y": cur[1], "z": cur[2], "yaw": cur[3],
-                     "action": int(w.action_type)})
-        last = cur
-
     scene = {
         "id": get("__scene_id", "scene"),
         "field": {
@@ -117,14 +105,12 @@ def main():
                   "z": float(get("start_z")), "layer": int(get("start_layer", 1))},
         "goal": {"x": float(get("goal_x")), "y": float(get("goal_y")),
                  "z": float(get("goal_z")), "layer": int(get("goal_layer", 1))},
-        "referencePath": path,
     }
     with open(args.scene_dir + "/scene.json", "w") as f:
         json.dump(scene, f, indent=2)
 
-    rospy.loginfo("exported %d cells, %d path points -> %s",
-                  count, len(path), args.scene_dir)
-    print("FIELD_EXPORT_OK cells=%d path=%d" % (count, len(path)))
+    rospy.loginfo("exported %d cells -> %s", count, args.scene_dir)
+    print("FIELD_EXPORT_OK cells=%d" % count)
 
 
 if __name__ == "__main__":

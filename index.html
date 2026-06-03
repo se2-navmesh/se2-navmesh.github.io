@@ -491,10 +491,8 @@
         A real, ROS-generated SE(2) NavMesh on textured HM3D scenes. The colored carpet is the
         <b>traversability field</b>: <b>safe</b> cells fit the robot footprint at every heading, while
         <b>restricted</b> cells fit at only some. The blue overlay is the final Detour polygon graph exported by
-        <code>se2_navmesh_static</code>. Drag to orbit, scroll to zoom.
-        <!-- Disabled feature: Planned path.
-             Previous copy promised live browser planning; that is disabled until the Explorer uses
-             polygon-level ASA rather than the span-cell lattice planner. -->
+        <code>se2_navmesh_static</code>. The planned path is computed in the browser with polygon-level ASA over
+        the exported Detour graph. Drag to orbit, scroll to zoom.
       </p>
     </div>
 
@@ -521,10 +519,8 @@
         <div class="viewer-stats">
           <div><span>Field cells</span><strong id="stat-cells">&ndash;</strong></div>
           <div><span>Restricted cells</span><strong id="stat-restricted">&ndash;</strong></div>
-          <!-- Disabled feature: Planned path.
           <div><span>Path length</span><strong id="stat-len">&ndash;</strong></div>
           <div><span>Path breakdown</span><strong id="stat-cost">&ndash;</strong></div>
-          -->
         </div>
 
         <!-- Disabled feature: Robot footprint.
@@ -544,14 +540,9 @@
           <label class="checkbox"><input id="toggle-mesh" type="checkbox" checked> Scene mesh</label>
           <label class="checkbox"><input id="toggle-cells" type="checkbox"> Traversability field</label>
           <label class="checkbox"><input id="toggle-polys" type="checkbox" checked> SE(2) NavMesh</label>
-          <!-- Disabled feature: Planned path.
           <label class="checkbox"><input id="toggle-path" type="checkbox" checked> Planned path</label>
-          -->
           <!-- Disabled feature: Robot footprint.
           <label class="checkbox"><input id="toggle-robot" type="checkbox" checked> Robot footprint</label>
-          -->
-          <!-- Disabled feature: ASA reference (ROS).
-          <label class="checkbox"><input id="toggle-ref" type="checkbox"> ASA reference (ROS)</label>
           -->
         </div>
 
@@ -559,19 +550,13 @@
           <div><span class="legend-swatch safe"></span>Safe &mdash; fits at every heading</div>
           <div><span class="legend-swatch restricted"></span>Restricted &mdash; only some headings fit</div>
           <div><span class="legend-swatch navmesh"></span>SE(2) NavMesh polygon</div>
-          <!-- Disabled feature: Planned path.
           <div><span class="legend-swatch path"></span>Planned path</div>
-          -->
           <div><span class="legend-swatch start"></span>Start arrow</div>
           <div><span class="legend-swatch goal"></span>Goal arrow</div>
         </div>
 
-        <p class="viewer-note">The span field remains an explanatory traversability overlay; route computation is
-          disabled until the browser planner is rebuilt on the exported polygon graph.</p>
-        <!-- Disabled feature: Planned path.
-        <p class="viewer-note">In-browser lattice A&thinsp;* over the exported SE(2) field (faithful to the
-          representation; an approximation of the full C++&nbsp;ASA pipeline).</p>
-        -->
+        <p class="viewer-note">The span field remains an explanatory traversability overlay; route computation uses
+          the exported polygon graph and exact start/goal yaw layers.</p>
       </aside>
     </div>
   </div>

@@ -15,17 +15,17 @@ The headline interactive (`#explorer`) is a from-scratch Three.js viewer driven 
   every heading) vs **restricted** (fits at only some). This makes the paper's core
   claim tangible.
 - **Live in-browser planning** — click a start and a goal and a yaw-aware path is
-  planned by **lattice A\*** over `(cell, heading)` on the exported field, with
-  translate-and-turn moves so the robot can rotate through restricted regions and a
-  directional cost (lateral motion 5× dearer than forward) so it prefers to face the
-  way it travels. It is
-  faithful to the representation and an approximation of the full C++ ASA pipeline.
-- **Scene selector** across several HM3D scenes; the configured ASA query (from the
-  ROS testing configs) is shown as a reference path you can toggle on.
+  planned by a browser-side polygon ASA pipeline over `polyfield.bin`: exact
+  yaw-layer start/goal snapping, first-stage polygon/yaw A\*, Detour-style
+  string pulling with all portal crossings, and a second crossing-constrained
+  A\*. Directional cost makes lateral motion more expensive than forward motion,
+  so the route prefers to face the way it travels.
+- **Scene selector** across several HM3D scenes; each scene opens with its
+  configured start/goal query and computes the route live in the browser.
 
 Scenes are listed in `static/scenes/index.json`; each `static/scenes/<dir>/` holds
-`scene.glb`, `field.bin`, and `scene.json` (agent, yaw layers, bounds, start/goal,
-ASA reference path).
+`scene.glb`, `field.bin`, `polyfield.bin`, `polyfield.json`, and `scene.json`
+(agent, yaw layers, bounds, and start/goal).
 
 > **Full write-up:** [`docs/explorer-rebuild.md`](docs/explorer-rebuild.md) — the
 > rebuild rationale, architecture/data-flow, coordinate frames, the planner, how to
@@ -73,6 +73,7 @@ bitmask) and the planner mission (continuous-yaw ASA path) and writes `field.bin
 
 ```bash
 python3 tools/verify_scenes.py            # QA all scenes: alignment + a planned path
+tools/validate_explorer_paths.sh          # headless-Chrome ASA planner sweep
 tools/screenshot_scene.sh 00473 out.png   # headless-Chrome render of one scene
 python3 -m http.server 8020               # then /tools/preview_harness.html?scene=00473
 ```

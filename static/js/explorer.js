@@ -7,17 +7,15 @@
  *                 [f32 x, y, z, u32 mask]; mask's low `yawBits` bits are the
  *                 feasible headings over [0, pi) (footprint is 180-deg symmetric)
  *   - polyfield.bin/json  exported Detour polygon graph for displaying the
- *                 SE(2) NavMesh surface polygons
- *   - scene.json  agent, yaw layers, bounds, configured start/goal, ASA reference
+ *                 SE(2) NavMesh surface polygons and browser-side ASA planning
+ *   - scene.json  agent, yaw layers, bounds, configured start/goal
  *
  * What it does that the old viewer didn't:
  *   - shows the real environment, not a sliver;
  *   - colors the field by traversability: safe (fits at every heading) vs
  *     restricted (fits at only some) -> makes yaw-dependent traversability
  *     tangible;
- *   - Planned path, robot footprint sweep, and ASA reference display are
- *     currently commented out because the Explorer target is polygon-level ASA
- *     over `polyfield.bin`, not the older span-cell lattice planner.
+ *   - computes the planned path with polygon-level ASA over `polyfield.bin`.
  */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -38,6 +36,18 @@ const COL = {
   start: 0x00d85a,
   goal: 0xff1f2d,
   robot: 0x33d6c0,
+};
+
+const ASA_DEFAULTS = {
+  numYawLayersPi: 20,
+  turningFactor: 1.0,
+  directionFactor: 1.0,
+  heuristicType: 0,
+  searchNodeSize: 1048575,
+  searchExtent: { x: 1.0, y: 1.0, z: 0.5 },
+  maxLonVelocity: 0.5,
+  maxLatVelocity: 0.1,
+  maxAngVelocity: 0.5,
 };
 
 const canvas = $("viewer");
@@ -152,32 +162,20 @@ async function boot() {
     const polyGraph = polyMeta && polyBuf ? buildPolyOverlay(parsePolyField(polyBuf, polyMeta)) : null;
     if (polyGraph) group.add(polyGraph.group);
 
-    // Disabled feature: Planned path.
-    // The span-cell lattice planner is kept below as commented reference until
-    // the Explorer moves to the intended polygon-level ASA planner.
-    // const planner = buildPlanner(field, scene);
+    const planner = polyGraph ? buildAsaPlanner(polyGraph.poly, scene) : null;
 
-    // Disabled feature: Planned path.
-    // const pathGroup = new THREE.Group();
-    // Disabled feature: ASA reference (ROS).
-    // const refGroup = new THREE.Group();
+    const pathGroup = new THREE.Group();
     const markers = new THREE.Group();
     // Disabled feature: Robot footprint.
     // const robot = buildRobot(scene.agent);
-    group.add(markers);
-    // Disabled feature: Planned path / ASA reference (ROS) / Robot footprint.
-    // group.add(pathGroup, refGroup, markers, robot);
+    group.add(pathGroup, markers);
+    // Disabled feature: Robot footprint.
+    // group.add(refGroup, robot);
 
-    // Disabled feature: ASA reference (ROS).
-    // if (scene.referencePath && scene.referencePath.length > 1) {
-    //   refGroup.add(polyline(scene.referencePath.map((p) => [p.x, p.y, p.z + 0.05]),
-    //     COL.ref, 0.025, 0.5));
-    // }
-
-    S = { meta, scene, field, cells, polyGraph, group, env, rayTargets, markers };
-    // Disabled feature: Planned path / ASA reference (ROS) / Robot footprint.
-    // S = { meta, scene, field, cells, polyGraph, planner, group, env, rayTargets,
-    //       pathGroup, refGroup, markers, robot, route: null, t: 0, playing: false };
+    S = { meta, scene, field, cells, polyGraph, planner, group, env, rayTargets,
+          pathGroup, markers, route: null, t: 0, playing: false };
+    // Disabled feature: Robot footprint.
+    // S.robot = robot;
 
     // camera framing
     const b = scene.field.bounds;
@@ -247,23 +245,53 @@ async function boot() {
 
     const firstVert = new Uint32Array(polygonCount);
     const vertCount = new Uint32Array(polygonCount);
+    const firstNeighbor = new Uint32Array(polygonCount);
+    const polyNeighborCount = new Uint32Array(polygonCount);
     const mask = new Uint32Array(polygonCount);
+    const ref = new Array(polygonCount);
+    const area = new Uint16Array(polygonCount);
+    const flags = new Uint16Array(polygonCount);
+    const tile = new Int32Array(polygonCount);
+    const tilePoly = new Int32Array(polygonCount);
+    const cx = new Float32Array(polygonCount);
+    const cy = new Float32Array(polygonCount);
+    const cz = new Float32Array(polygonCount);
     for (let i = 0; i < polygonCount; i++) {
-      o += 8; // Detour polygon reference.
+      ref[i] = Number(dv.getBigUint64(o, true)); o += 8;
       firstVert[i] = dv.getUint32(o, true); o += 4;
       vertCount[i] = dv.getUint32(o, true); o += 4;
-      o += 8; // firstNeighbor, neighborCount.
+      firstNeighbor[i] = dv.getUint32(o, true); o += 4;
+      polyNeighborCount[i] = dv.getUint32(o, true); o += 4;
       mask[i] = dv.getUint32(o, true); o += 4;
-      o += 24; // area, flags, tile indices, center.
+      area[i] = dv.getUint16(o, true); o += 2;
+      flags[i] = dv.getUint16(o, true); o += 2;
+      tile[i] = dv.getInt32(o, true); o += 4;
+      tilePoly[i] = dv.getInt32(o, true); o += 4;
+      cx[i] = dv.getFloat32(o, true); o += 4;
+      cy[i] = dv.getFloat32(o, true); o += 4;
+      cz[i] = dv.getFloat32(o, true); o += 4;
     }
 
     const indices = new Uint32Array(indexCount);
     for (let i = 0; i < indexCount; i++) { indices[i] = dv.getUint32(o, true); o += 4; }
 
+    const neighborPoly = new Uint32Array(neighborCount);
+    const neighborRef = new Array(neighborCount);
+    const neighborEdge = new Uint32Array(neighborCount);
+    const portal = new Float32Array(neighborCount * 6);
+    for (let i = 0; i < neighborCount; i++) {
+      neighborPoly[i] = dv.getUint32(o, true); o += 4;
+      neighborRef[i] = Number(dv.getBigUint64(o, true)); o += 8;
+      neighborEdge[i] = dv.getUint32(o, true); o += 4;
+      for (let j = 0; j < 6; j++) { portal[i * 6 + j] = dv.getFloat32(o, true); o += 4; }
+    }
+
     const full = yawBits >= 32 ? 0xffffffff : (Math.pow(2, yawBits) - 1) >>> 0;
     return { version, polyRefBytes, yawBits, yawStep, cellSize, vertexCount,
-             polygonCount, indexCount, neighborCount, vx, vy, vz, firstVert, vertCount,
-             mask, indices, full, meta: pmeta };
+             polygonCount, indexCount, neighborCount, vx, vy, vz, ref, firstVert,
+             vertCount, firstNeighbor, polyNeighborCount, mask, area, flags, tile,
+             tilePoly, cx, cy, cz, indices, neighborPoly, neighborRef, neighborEdge,
+             portal, full, meta: pmeta };
   }
 
   function buildPolyOverlay(poly) {
@@ -364,147 +392,618 @@ async function boot() {
     // if (S.robot && !S.route) orientRobot();
   }
 
-  /*
-   * Disabled feature: Planned path.
-   *
-   * The previous live route used a span-cell lattice A* over `field.bin`.
-   * That does not match the Explorer's current target: planning should use the
-   * exported Detour polygon graph and mirror `se2_navmesh_static`'s ASA
-   * query semantics. Keep the old implementation commented for reference while
-   * the polygon-level planner is rebuilt.
-   *
-  // ── planner: lattice A* over (cell, heading) ────────────────────
-  function buildPlanner(field, scene) {
-    const cs = field.cellSize, climb = scene.agent.maxClimb || 0.25;
-    const K = 100003;
-    const ckey = (ix, iy) => ix * K + iy;
-    const grid = new Map();
-    const gix = new Int32Array(field.n), giy = new Int32Array(field.n);
-    for (let i = 0; i < field.n; i++) {
-      const ix = Math.round(field.px[i] / cs), iy = Math.round(field.py[i] / cs);
-      gix[i] = ix; giy[i] = iy;
-      const k = ckey(ix, iy);
-      let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(i);
+  // ── planner: polygon-level ASA over exported Detour graph ───────
+  function buildAsaPlanner(poly, scene) {
+    const ag = scene.agent || {};
+    const params = {
+      ...ASA_DEFAULTS,
+      numYawLayersPi: poly.yawBits || ASA_DEFAULTS.numYawLayersPi,
+      maxLonVelocity: ag.maxLonVelocity || ASA_DEFAULTS.maxLonVelocity,
+      maxLatVelocity: ag.maxLatVelocity || ASA_DEFAULTS.maxLatVelocity,
+      maxAngVelocity: ag.maxAngVelocity || ASA_DEFAULTS.maxAngVelocity,
+    };
+    params.nLayers = params.numYawLayersPi * 2;
+    params.yawStepRad = poly.yawStep || Math.PI / params.numYawLayersPi;
+    params.singleYawLayerCost = params.yawStepRad / params.maxAngVelocity * params.turningFactor;
+    params.unitLonDistCost = params.directionFactor / params.maxLonVelocity;
+    params.unitLatDistCost = params.directionFactor / params.maxLatVelocity;
+    params.unitDistMinCost = params.directionFactor / Math.max(params.maxLonVelocity, params.maxLatVelocity);
+
+    const polygons = new Array(poly.polygonCount);
+    const idByRef = new Map();
+    for (let i = 0; i < poly.polygonCount; i++) {
+      const verts = [];
+      const bounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+      const start = poly.firstVert[i];
+      for (let j = 0; j < poly.vertCount[i]; j++) {
+        const vi = poly.indices[start + j];
+        const v = { x: poly.vx[vi], y: poly.vy[vi], z: poly.vz[vi] };
+        verts.push(v);
+        bounds.min[0] = Math.min(bounds.min[0], v.x); bounds.max[0] = Math.max(bounds.max[0], v.x);
+        bounds.min[1] = Math.min(bounds.min[1], v.y); bounds.max[1] = Math.max(bounds.max[1], v.y);
+        bounds.min[2] = Math.min(bounds.min[2], v.z); bounds.max[2] = Math.max(bounds.max[2], v.z);
+      }
+      const p = {
+        id: i,
+        ref: poly.ref[i],
+        verts,
+        bounds,
+        mask: poly.mask[i],
+        area: poly.area[i],
+        flags: poly.flags[i],
+        center: { x: poly.cx[i], y: poly.cy[i], z: poly.cz[i] },
+        neighbors: [],
+      };
+      polygons[i] = p;
+      idByRef.set(p.ref, i);
     }
-    // spatial neighbours (xy-adjacent, climbable z step)
-    const nbr = new Array(field.n);
-    for (let i = 0; i < field.n; i++) {
-      const list = [];
-      for (let dx = -1; dx <= 1; dx++)
-        for (let dy = -1; dy <= 1; dy++) {
-          if (dx === 0 && dy === 0) continue;
-          const a = grid.get(ckey(gix[i] + dx, giy[i] + dy));
-          if (!a) continue;
-          for (const j of a) if (Math.abs(field.pz[i] - field.pz[j]) <= climb) list.push(j);
-        }
-      nbr[i] = list;
+    for (let i = 0; i < poly.polygonCount; i++) {
+      for (let j = 0; j < poly.polyNeighborCount[i]; j++) {
+        const ni = poly.firstNeighbor[i] + j;
+        const a = {
+          x: poly.portal[ni * 6],
+          y: poly.portal[ni * 6 + 1],
+          z: poly.portal[ni * 6 + 2],
+        };
+        const b = {
+          x: poly.portal[ni * 6 + 3],
+          y: poly.portal[ni * 6 + 4],
+          z: poly.portal[ni * 6 + 5],
+        };
+        polygons[i].neighbors.push({
+          poly: poly.neighborPoly[ni],
+          ref: poly.neighborRef[ni],
+          edge: poly.neighborEdge[ni],
+          portalA: a,
+          portalB: b,
+          midpoint: midpoint(a, b),
+        });
+      }
     }
-    return { grid, ckey, gix, giy, nbr, cs, climb };
+    return { poly, polygons, idByRef, params };
   }
 
-  function nearestCell(field, x, y, z) {
-    let best = -1, bd = Infinity;
-    for (let i = 0; i < field.n; i++) {
-      const dx = field.px[i] - x, dy = field.py[i] - y, dz = (field.pz[i] - z) * 1.5;
-      const d = dx * dx + dy * dy + dz * dz;
-      if (d < bd) { bd = d; best = i; }
+  function planAsa(start, goal) {
+    if (!S || !S.planner) return { route: null, message: "Polygon graph unavailable." };
+    const P = S.planner;
+    const startLayer = normalizeLayer(start.layer != null ? start.layer : yawToLayer(start.yaw), P.params.nLayers);
+    const goalLayer = normalizeLayer(goal.layer != null ? goal.layer : yawToLayer(goal.yaw), P.params.nLayers);
+    const debug = { startLayer, goalLayer };
+    const s = findNearestPolyMultiLayerWeb(P, start, startLayer);
+    if (!s) return { route: null, message: "No start polygon within search extent for the selected yaw." };
+    const g = findNearestPolyMultiLayerWeb(P, goal, goalLayer);
+    if (!g) return { route: null, message: "No goal polygon within search extent for the selected yaw." };
+    debug.start = debugSnap(P, s, start);
+    debug.goal = debugSnap(P, g, goal);
+
+    const first = findPathMultiLayerWeb(P, s, g);
+    if (!first) return { route: null, message: "ASA first A* could not find a polygon corridor." };
+    const corridor = extractCorridor(P, first.nodes);
+    if (corridor.length < 1) return { route: null, message: "ASA corridor extraction failed." };
+    debug.firstNodeRefs = first.nodes.map((n) => [P.polygons[n.a].ref, P.polygons[n.b].ref, n.layer]);
+    debug.corridorRefs = corridor.map((id) => P.polygons[id].ref);
+    const crossings = stringPullCrossings(P, corridor, s.pos, g.pos);
+    if (!crossings) return { route: null, message: "ASA string-pulling failed." };
+    debug.crossings = crossings.debug;
+    const second = findPathMultiLayerFilteredWeb(P, s, g, crossings.map);
+    if (!second) return { route: null, message: "ASA second A* could not refine the corridor." };
+    debug.secondNodeRefs = second.nodes.map((n) => [P.polygons[n.a].ref, P.polygons[n.b].ref, n.layer]);
+    return { route: routeFromNodes(second.nodes, P), cost: second.cost, corridor, debug, message: "ASA path computed." };
+  }
+
+  function findNearestPolyMultiLayerWeb(P, pose, layer) {
+    const ex = P.params.searchExtent;
+    let best = null, bestDist = Infinity;
+    for (const poly of P.polygons) {
+      if (!supportsLayer(poly, layer, P.params)) continue;
+      if (poly.bounds.max[0] < pose.x - ex.x || poly.bounds.min[0] > pose.x + ex.x ||
+          poly.bounds.max[1] < pose.y - ex.y || poly.bounds.min[1] > pose.y + ex.y ||
+          poly.bounds.max[2] < pose.z - ex.z || poly.bounds.min[2] > pose.z + ex.z) {
+        continue;
+      }
+      const cp = closestPointOnPoly(poly, pose);
+      if (Math.abs(pose.x - cp.x) > ex.x || Math.abs(pose.y - cp.y) > ex.y ||
+          Math.abs(pose.z - cp.z) > ex.z) {
+        continue;
+      }
+      const dz = pose.z - cp.z;
+      const d = cp.over ? Math.max(0, Math.abs(dz) - (S.scene.agent.maxClimb || 0.25)) ** 2
+        : distSq(pose, cp);
+      if (d < bestDist) {
+        bestDist = d;
+        best = { poly: poly.id, ref: poly.ref, pos: { x: cp.x, y: cp.y, z: cp.z }, layer };
+      }
     }
     return best;
   }
 
-  function nearestFeasibleLayer(field, c, preferLayer) {
-    if (feasible(field, c, preferLayer)) return preferLayer;
-    for (let d = 1; d <= field.nLayers; d++) {
-      const a = (preferLayer + d) % field.nLayers, b = (preferLayer - d + field.nLayers) % field.nLayers;
-      if (feasible(field, c, a)) return a;
-      if (feasible(field, c, b)) return b;
-    }
-    return -1;
+  function findPathMultiLayerWeb(P, s, g) {
+    return asaSearch(P, s, g, null, false);
   }
 
-  // Returns array of {x,y,z,yaw} or null.
-  //
-  // Cost model mirrors the C++ ASA planner (se2_navmesh, testing_utils.cpp) /
-  // paper (Method.tex eq. 6-7): edge cost = traversal *time*. A translation
-  // holding heading psi splits the move into longitudinal / lateral components
-  // and charges 1/v_long and 1/v_lat per metre; an in-place yaw step costs
-  // yawStep/omega. With the default anymal params v_lat (0.1) << v_lon (0.5),
-  // so sideways motion is ~5x more expensive -> the path prefers to face the
-  // way it travels instead of strafing.
-  function plan(startCell, startLayer, goalCell) {
-    const f = S.field, P = S.planner, a = S.scene.agent || {};
-    if (startCell < 0 || goalCell < 0 || startLayer < 0) return null;
-    const nL = f.nLayers;
-    const vLon = a.maxLonVelocity || 0.5, vLat = a.maxLatVelocity || 0.1;
-    const vAng = a.maxAngVelocity || 0.5;
-    const dirF = a.directionCostFactor || 1.0, turnF = a.turningCostFactor || 1.0;
-    const unitLon = dirF / vLon, unitLat = dirF / vLat;  // cost per metre fwd / sideways
-    const ROT = f.yawStep / vAng * turnF;                // cost per yaw-layer step
-    const hUnit = Math.min(unitLon, unitLat);            // cheapest metre -> admissible h
-    const id = (c, L) => c * nL + L;
-    const gx = f.px[goalCell], gy = f.py[goalCell], gz = f.pz[goalCell];
-    const h = (c) => Math.hypot(f.px[c] - gx, f.py[c] - gy, f.pz[c] - gz) * hUnit;
+  function findPathMultiLayerFilteredWeb(P, s, g, crossingMap) {
+    return asaSearch(P, s, g, crossingMap, true);
+  }
 
-    const gScore = new Map(), came = new Map();
-    const heap = new MinHeap();
-    const s = id(startCell, startLayer);
-    gScore.set(s, 0);
-    heap.push(s, h(startCell));
-    let goalNode = -1;
+  function asaSearch(P, s, g, crossingMap, ordered) {
+    const params = P.params;
+    const open = new MinHeap();
+    const nodes = new Map();
+    const closed = new Set();
+    let created = 0;
 
-    while (heap.size) {
-      const cur = heap.pop();
-      const c = (cur / nL) | 0, L = cur % nL;
-      if (c === goalCell) { goalNode = cur; break; }
-      const g = gScore.get(cur);
-      // rotational neighbours
-      for (const dL of [1, nL - 1]) {
-        const L2 = (L + dL) % nL;
-        if (!feasible(f, c, L2)) continue;
-        relax(cur, id(c, L2), g + ROT, c);
+    const start = makeNode(P, s.poly, s.poly, s.layer, s.pos, "start", null, 0, "start", "start", ordered);
+    start.total = heuristic(P, start, g);
+    nodes.set(start.key, start);
+    open.push(start.key, start.total);
+    created++;
+
+    while (open.size) {
+      const key = open.pop();
+      const cur = nodes.get(key);
+      if (!cur || closed.has(key)) continue;
+      closed.add(key);
+      if (isGoalNode(cur, g)) return reconstructResult(nodes, cur);
+
+      const parent = cur.parent ? nodes.get(cur.parent) : null;
+      const yawChecks = [lowerLayer(cur.layer, params), upperLayer(cur.layer, params)];
+      for (let i = 0; i < yawChecks.length; i++) {
+        if (params.nLayers === 2 && i === 1) continue;
+        const layer = yawChecks[i];
+        if (parent && cur.layer !== parent.layer && layer === parent.layer) continue;
+        const polyA = P.polygons[cur.a], polyB = P.polygons[cur.b];
+        if (!supportsCombined(polyA, polyB, layer, params)) continue;
+        const cand = makeNode(P, cur.a, cur.b, layer, cur.pos, cur.posKey, null,
+          cur.cost + params.singleYawLayerCost, cur.stepFrom, cur.stepTo, ordered);
+        if (relax(cand, cur, g)) created++;
       }
-      // translational neighbours, optionally turning by one layer while
-      // stepping (so the robot can turn through a patchwork of restricted
-      // cells whose feasible headings only overlap at adjacent layers)
-      if (feasible(f, c, L)) {
-        const list = P.nbr[c];
-        for (let k = 0; k < list.length; k++) {
-          const j = list[k];
-          const dx = f.px[j] - f.px[c], dy = f.py[j] - f.py[c], dz = f.pz[j] - f.pz[c];
-          const dist = Math.hypot(dx, dy, dz);
-          // anisotropic cost of the move while holding the current heading L
-          const diff = Math.atan2(dy, dx) - L * f.yawStep;
-          const moveCost = dist * (Math.abs(Math.cos(diff)) * unitLon +
-                                   Math.abs(Math.sin(diff)) * unitLat);
-          for (const dL of [0, 1, nL - 1]) {
-            const L2 = (L + dL) % nL;
-            if (!feasible(f, j, L2)) continue;
-            relax(cur, id(j, L2), g + moveCost + (dL === 0 ? 0 : ROT), j);
-          }
+
+      if (ordered) {
+        expandOrderedSpatial(cur, parent);
+      } else {
+        expandFirstStageSpatial(cur, parent);
+      }
+      connectGoal(cur);
+    }
+    return null;
+
+    function expandFirstStageSpatial(cur, parent) {
+      const bases = cur.a === cur.b ? [cur.a] : [cur.a, cur.b];
+      for (const baseId of bases) {
+        const otherId = baseId === cur.a ? cur.b : cur.a;
+        const base = P.polygons[baseId];
+        for (const nb of base.neighbors) {
+          const nextId = nb.poly;
+          if (nextId === otherId) continue;
+          const pair = unorderedPairByRef(P, baseId, nextId);
+          if (parent && pair.a === parent.a && pair.b === parent.b) continue;
+          if (!passDouble(P, baseId, nextId, cur.layer)) continue;
+          const pos = nb.midpoint;
+          const cost = cur.cost + translationCost(P, cur.pos, pos, cur.layer);
+          const cand = makeNode(P, pair.a, pair.b, cur.layer, pos, pointKey(pos), null, cost, baseId, nextId, false);
+          if (relax(cand, cur, g)) created++;
         }
       }
     }
-    function relax(from, to, ng, toCell) {
-      const old = gScore.get(to);
-      if (old !== undefined && old <= ng) return;
-      gScore.set(to, ng);
-      came.set(to, from);
-      heap.push(to, ng + h(toCell));
-    }
-    if (goalNode < 0) return null;
 
-    const seq = [];
-    for (let node = goalNode; node !== undefined; node = came.get(node)) {
-      const c = (node / nL) | 0, L = node % nL;
-      seq.push({ x: f.px[c], y: f.py[c], z: f.pz[c], yaw: L * f.yawStep });
-      if (node === s) break;
+    function expandOrderedSpatial(cur, parent) {
+      const fromId = cur.b;
+      const from = P.polygons[fromId];
+      for (const nb of from.neighbors) {
+        const nextId = nb.poly;
+        if (parent && fromId === parent.a && nextId === parent.b) continue;
+        const mapKey = crossingKey(P, fromId, nextId);
+        const pos = crossingMap.get(mapKey);
+        if (!pos) continue;
+        if (!passDouble(P, fromId, nextId, cur.layer)) continue;
+        const cost = cur.cost + (dist(cur.pos, pos) < 1e-4 ? 0 : translationCost(P, cur.pos, pos, cur.layer));
+        const cand = makeNode(P, fromId, nextId, cur.layer, pos, pointKey(pos), null, cost, fromId, nextId, true);
+        if (relax(cand, cur, g)) created++;
+      }
     }
-    seq.reverse();
-    return seq;
+
+    function connectGoal(cur) {
+      const touchesGoal = ordered ? cur.b === g.poly : (cur.a === g.poly || cur.b === g.poly);
+      if (!touchesGoal) return;
+      const refsDiffer = cur.a !== cur.b;
+      const posDiffer = distSq(cur.pos, g.pos) > 1e-10;
+      if (!refsDiffer && !posDiffer) return;
+      if (!supportsLayer(P.polygons[g.poly], cur.layer, params)) return;
+      const cost = cur.cost + translationCost(P, cur.pos, g.pos, cur.layer);
+      const cand = makeNode(P, g.poly, g.poly, cur.layer, g.pos, "goal", null, cost, g.poly, g.poly, ordered);
+      if (relax(cand, cur, g)) created++;
+    }
+
+    function relax(cand, parent, goal) {
+      if (created > params.searchNodeSize) return false;
+      cand.parent = parent.key;
+      cand.total = cand.cost + heuristic(P, cand, goal);
+      const old = nodes.get(cand.key);
+      if (old && old.cost <= cand.cost) return false;
+      nodes.set(cand.key, cand);
+      open.push(cand.key, cand.total);
+      return !old;
+    }
   }
-   */
 
-  // ── query (start/goal markers only) ─────────────────────────────
+  function makeNode(P, a, b, layer, pos, posKeyValue, parent, cost, stepFrom, stepTo, ordered) {
+    const pk = posKeyValue || pointKey(pos);
+    const ar = P.polygons[a].ref, br = P.polygons[b].ref;
+    const needsPosition = a === b;
+    const key = (ordered ? "o:" : "u:") + ar + ":" + br + ":" + layer + ":0" +
+      (needsPosition ? ":" + pk : "");
+    return { a, b, layer, pos: { x: pos.x, y: pos.y, z: pos.z }, posKey: pk,
+             parent, cost, total: cost, key, stepFrom, stepTo };
+  }
+
+  function reconstructResult(nodes, goalNode) {
+    const seq = [];
+    for (let n = goalNode; n; n = n.parent ? nodes.get(n.parent) : null) seq.push(n);
+    seq.reverse();
+    return { nodes: seq, cost: goalNode.cost };
+  }
+
+  function isGoalNode(n, g) {
+    return n.a === g.poly && n.b === g.poly && n.layer === g.layer && distSq(n.pos, g.pos) < 1e-10;
+  }
+
+  function extractCorridor(P, nodes) {
+    const pathA = [], pathB = [];
+    for (const n of nodes) {
+      const last = pathA.length - 1;
+      if (last < 0 || pathA[last] !== n.a || pathB[last] !== n.b) {
+        pathA.push(n.a);
+        pathB.push(n.b);
+      }
+    }
+    return compressPolyPathMultiLayer(P, extractPolyPath(pathA, pathB));
+  }
+
+  function extractPolyPath(pathA, pathB) {
+    const polyPath = [];
+    if (!pathA.length || pathA.length !== pathB.length || pathA[0] !== pathB[0]) return polyPath;
+    polyPath.push(pathA[0]);
+    let lastA = pathA[0], lastB = pathB[0];
+    for (let i = 1; i < pathA.length; i++) {
+      const prev = polyPath[polyPath.length - 1];
+      if (pathA[i] === prev && pathB[i] === prev) {
+        lastA = pathA[i]; lastB = pathB[i];
+        continue;
+      }
+      if (pathA[i] === prev || pathB[i] === prev) {
+        polyPath.push(pathA[i] === prev ? pathB[i] : pathA[i]);
+      } else if (lastA === pathA[i]) {
+        polyPath.push(lastA, pathB[i]);
+      } else if (lastA === pathB[i]) {
+        polyPath.push(lastA, pathA[i]);
+      } else if (lastB === pathA[i]) {
+        polyPath.push(lastB, pathB[i]);
+      } else if (lastB === pathB[i]) {
+        polyPath.push(lastB, pathA[i]);
+      } else {
+        return [];
+      }
+      lastA = pathA[i];
+      lastB = pathB[i];
+    }
+    return polyPath;
+  }
+
+  function compressPolyPathMultiLayer(P, path) {
+    const out = [];
+    const full = P.params.numYawLayersPi >= 32 ? 0xffffffff :
+      ((1 << P.params.numYawLayersPi) - 1) >>> 0;
+    let i = 0;
+    while (i < path.length) {
+      if (i + 2 < path.length && path[i] === path[i + 2] &&
+          (P.polygons[path[i]].mask & full) === full) {
+        out.push(path[i]);
+        i += 3;
+      } else {
+        out.push(path[i]);
+        i++;
+      }
+    }
+    return out;
+  }
+
+  function stringPullCrossings(P, corridor, start, goal) {
+    const straight = findStraightPathAllCrossings(P, corridor, start, goal);
+    if (!straight) return null;
+    if (straight.refs.length) straight.refs[straight.refs.length - 1] = P.polygons[corridor[corridor.length - 1]].ref;
+    const map = new Map();
+    let idx = 0;
+    const filteredPos = new Array(corridor.length);
+    for (let i = 0; i < corridor.length; i++) {
+      const ref = P.polygons[corridor[i]].ref;
+      filteredPos[i] = straight.points[Math.min(idx, straight.points.length - 1)];
+      if (straight.refs[idx] === ref && idx + 1 < straight.refs.length) idx++;
+    }
+    for (let i = 1; i < corridor.length; i++) {
+      map.set(crossingKey(P, corridor[i - 1], corridor[i]), filteredPos[i]);
+    }
+    return {
+      corners: straight.points,
+      map,
+      debug: Array.from(map.entries()).map(([key, pos]) => ({ key, pos: { ...pos } })),
+    };
+  }
+
+  function findStraightPathAllCrossings(P, corridor, start, goal) {
+    if (!corridor.length) return null;
+    const closestStart = closestPointOnPolyBoundary(P.polygons[corridor[0]], start);
+    const closestGoal = closestPointOnPolyBoundary(P.polygons[corridor[corridor.length - 1]], goal);
+    const points = [], refs = [];
+    appendStraightPoint(points, refs, closestStart, P.polygons[corridor[0]].ref);
+    if (corridor.length === 1) {
+      appendStraightPoint(points, refs, closestGoal, 0);
+      return { points, refs };
+    }
+
+    let apex = closestStart;
+    let left = closestStart;
+    let right = closestStart;
+    let apexIndex = 0;
+    let leftIndex = 0, rightIndex = 0;
+    let leftRef = P.polygons[corridor[0]].ref, rightRef = P.polygons[corridor[0]].ref;
+
+    for (let i = 0; i < corridor.length; i++) {
+      let newLeft, newRight;
+      if (i + 1 < corridor.length) {
+        const portal = portalForPath(P, corridor[i], corridor[i + 1]);
+        if (!portal) return null;
+        newLeft = portal.left;
+        newRight = portal.right;
+        if (i === 0 && distPtSegSq2D(apex, newLeft, newRight) < 0.001 * 0.001) continue;
+      } else {
+        newLeft = closestGoal;
+        newRight = closestGoal;
+      }
+
+      if (triarea2(apex, right, newRight) <= 0) {
+        if (samePoint(apex, right) || triarea2(apex, left, newRight) > 0) {
+          right = newRight;
+          rightRef = i + 1 < corridor.length ? P.polygons[corridor[i + 1]].ref : 0;
+          rightIndex = i;
+        } else {
+          appendPortalsAllCrossings(P, points, refs, corridor, apex, left, apexIndex, leftIndex);
+          appendStraightPoint(points, refs, left, leftRef);
+          apex = left;
+          apexIndex = leftIndex;
+          left = apex; right = apex;
+          leftIndex = apexIndex; rightIndex = apexIndex;
+          i = apexIndex;
+          continue;
+        }
+      }
+
+      if (triarea2(apex, left, newLeft) >= 0) {
+        if (samePoint(apex, left) || triarea2(apex, right, newLeft) < 0) {
+          left = newLeft;
+          leftRef = i + 1 < corridor.length ? P.polygons[corridor[i + 1]].ref : 0;
+          leftIndex = i;
+        } else {
+          appendPortalsAllCrossings(P, points, refs, corridor, apex, right, apexIndex, rightIndex);
+          appendStraightPoint(points, refs, right, rightRef);
+          apex = right;
+          apexIndex = rightIndex;
+          left = apex; right = apex;
+          leftIndex = apexIndex; rightIndex = apexIndex;
+          i = apexIndex;
+          continue;
+        }
+      }
+    }
+
+    appendPortalsAllCrossings(P, points, refs, corridor, apex, closestGoal, apexIndex, corridor.length - 1);
+    appendStraightPoint(points, refs, closestGoal, 0);
+    return { points, refs };
+  }
+
+  function appendPortalsAllCrossings(P, points, refs, corridor, startPos, endPos, startIdx, endIdx) {
+    for (let i = startIdx; i < endIdx; i++) {
+      const edge = findNeighbor(P, corridor[i], corridor[i + 1]);
+      if (!edge) continue;
+      const hit = segmentPortalIntersection2D(startPos, endPos, edge.portalA, edge.portalB);
+      if (hit) {
+        appendStraightPoint(points, refs, hit, P.polygons[corridor[i + 1]].ref);
+      }
+    }
+  }
+
+  function routeFromNodes(nodes, P) {
+    const out = [];
+    for (const n of nodes) {
+      const p = { x: n.pos.x, y: n.pos.y, z: n.pos.z, layer: n.layer,
+                  yaw: (n.layer - 1) * P.params.yawStepRad };
+      const last = out[out.length - 1];
+      if (!last || distSq(last, p) > 1e-10 || last.layer !== p.layer) out.push(p);
+    }
+    return out;
+  }
+
+  function passDouble(P, currentId, neighborId, layer) {
+    const params = P.params, cur = P.polygons[currentId], nb = P.polygons[neighborId];
+    if (!supportsLayer(cur, layer, params)) return false;
+    return supportsLayer(nb, layer, params) ||
+      supportsLayer(nb, lowerLayer(layer, params), params) ||
+      supportsLayer(nb, upperLayer(layer, params), params);
+  }
+
+  function supportsCombined(a, b, layer, params) {
+    const bit = layerBit(layer, params);
+    return (((a.mask | b.mask) >>> bit) & 1) !== 0;
+  }
+
+  function supportsLayer(poly, layer, params) {
+    const bit = layerBit(layer, params);
+    return ((poly.mask >>> bit) & 1) !== 0;
+  }
+
+  function layerBit(layer, params) {
+    return (layer > params.numYawLayersPi ? layer - params.numYawLayersPi : layer) - 1;
+  }
+
+  function lowerLayer(layer, params) { return layer > 1 ? layer - 1 : params.nLayers; }
+  function upperLayer(layer, params) { return layer < params.nLayers ? layer + 1 : 1; }
+  function normalizeLayer(layer, nLayers) { return ((layer - 1) % nLayers + nLayers) % nLayers + 1; }
+
+  function translationCost(P, a, b, layer) {
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d < 1e-9) return 0;
+    const diff = Math.atan2(dy, dx) - (layer - 1) * P.params.yawStepRad;
+    return d * (Math.abs(Math.cos(diff)) * P.params.unitLonDistCost +
+                Math.abs(Math.sin(diff)) * P.params.unitLatDistCost);
+  }
+
+  function heuristic(P, n, goal) {
+    const d = P.params.heuristicType === 1
+      ? Math.abs(n.pos.x - goal.pos.x) + Math.abs(n.pos.y - goal.pos.y) + Math.abs(n.pos.z - goal.pos.z)
+      : dist(n.pos, goal.pos);
+    return d * P.params.unitDistMinCost +
+      layerDistance(n.layer, goal.layer, P.params.nLayers) * P.params.singleYawLayerCost;
+  }
+
+  function layerDistance(a, b, n) {
+    const d = Math.abs(a - b);
+    return Math.min(d, n - d);
+  }
+
+  function findNeighbor(P, from, to) {
+    return P.polygons[from].neighbors.find((n) => n.poly === to) || null;
+  }
+
+  function portalForPath(P, from, to) {
+    const edge = findNeighbor(P, from, to);
+    if (!edge) return null;
+    // Exported portal endpoints already preserve Detour's left/right order in
+    // the browser XY plane used by the funnel.
+    return { left: edge.portalA, right: edge.portalB };
+  }
+
+  function unorderedPairByRef(P, a, b) {
+    const ar = P.polygons[a].ref, br = P.polygons[b].ref;
+    return ar <= br ? { a, b } : { a: b, b: a };
+  }
+
+  function crossingKey(P, from, to) {
+    return P.polygons[from].ref + ":" + P.polygons[to].ref;
+  }
+
+  function debugSnap(P, snapped, requested) {
+    return {
+      ref: snapped.ref,
+      poly: snapped.poly,
+      layer: snapped.layer,
+      requested: { x: requested.x, y: requested.y, z: requested.z, yaw: requested.yaw },
+      nearest: { ...snapped.pos },
+      offset: {
+        x: snapped.pos.x - requested.x,
+        y: snapped.pos.y - requested.y,
+        z: snapped.pos.z - requested.z,
+      },
+      mask: P.polygons[snapped.poly].mask,
+    };
+  }
+
+  function appendStraightPoint(points, refs, pos, ref) {
+    const last = points[points.length - 1];
+    if (last && samePoint3D(last, pos)) {
+      refs[refs.length - 1] = ref;
+      return;
+    }
+    points.push({ x: pos.x, y: pos.y, z: pos.z });
+    refs.push(ref);
+  }
+
+  function pointKey(p) { return p.x.toFixed(4) + "," + p.y.toFixed(4) + "," + p.z.toFixed(4); }
+  function midpoint(a, b) { return { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5, z: (a.z + b.z) * 0.5 }; }
+  function dist(a, b) { return Math.sqrt(distSq(a, b)); }
+  function distSq(a, b) { const dx = a.x-b.x, dy = a.y-b.y, dz = a.z-b.z; return dx*dx + dy*dy + dz*dz; }
+  function samePoint(a, b) { return Math.abs(a.x-b.x) < 1e-6 && Math.abs(a.y-b.y) < 1e-6; }
+  function samePoint3D(a, b) { return distSq(a, b) < 1e-12; }
+  function cross2(ax, ay, bx, by) { return ax * by - ay * bx; }
+  function triarea2(a, b, c) { return cross2(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y); }
+
+  function closestPointOnPoly(poly, p) {
+    if (pointInPolyXY(poly.verts, p)) {
+      return { ...projectToPolyPlane(poly, p), over: true };
+    }
+    let best = null, bd = Infinity;
+    for (let i = 0; i < poly.verts.length; i++) {
+      const q = closestPointOnSegment3D(p, poly.verts[i], poly.verts[(i + 1) % poly.verts.length]);
+      const d = distSq(p, q);
+      if (d < bd) { bd = d; best = q; }
+    }
+    return { ...best, over: false };
+  }
+
+  function closestPointOnPolyBoundary(poly, p) {
+    if (pointInPolyXY(poly.verts, p)) return projectToPolyPlane(poly, p);
+    let best = null, bd = Infinity;
+    for (let i = 0; i < poly.verts.length; i++) {
+      const q = closestPointOnSegment2D(p, poly.verts[i], poly.verts[(i + 1) % poly.verts.length]);
+      const d = distSq(p, q);
+      if (d < bd) { bd = d; best = q; }
+    }
+    return best || { x: p.x, y: p.y, z: p.z };
+  }
+
+  function pointInPolyXY(verts, p) {
+    let inside = false;
+    for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+      const a = verts[i], b = verts[j];
+      if (((a.y > p.y) !== (b.y > p.y)) &&
+          (p.x < (b.x - a.x) * (p.y - a.y) / ((b.y - a.y) || 1e-12) + a.x)) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  function projectToPolyPlane(poly, p) {
+    const a = poly.verts[0], b = poly.verts[1], c = poly.verts[2];
+    const ux = b.x-a.x, uy = b.y-a.y, uz = b.z-a.z;
+    const vx = c.x-a.x, vy = c.y-a.y, vz = c.z-a.z;
+    const nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx;
+    const z = Math.abs(nz) < 1e-8 ? poly.center.z : a.z - (nx*(p.x-a.x) + ny*(p.y-a.y)) / nz;
+    return { x: p.x, y: p.y, z };
+  }
+
+  function closestPointOnSegment3D(p, a, b) {
+    const dx = b.x-a.x, dy = b.y-a.y, dz = b.z-a.z;
+    const l2 = dx*dx + dy*dy + dz*dz;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((p.x-a.x)*dx + (p.y-a.y)*dy + (p.z-a.z)*dz) / l2)) : 0;
+    return { x: a.x + dx*t, y: a.y + dy*t, z: a.z + dz*t };
+  }
+
+  function closestPointOnSegment2D(p, a, b) {
+    const dx = b.x-a.x, dy = b.y-a.y;
+    const l2 = dx*dx + dy*dy;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((p.x-a.x)*dx + (p.y-a.y)*dy) / l2)) : 0;
+    return { x: a.x + dx*t, y: a.y + dy*t, z: a.z + (b.z-a.z)*t };
+  }
+
+  function distPtSegSq2D(p, a, b) {
+    const q = closestPointOnSegment2D(p, a, b);
+    const dx = p.x - q.x, dy = p.y - q.y;
+    return dx*dx + dy*dy;
+  }
+
+  function segmentPortalIntersection2D(a, b, c, d) {
+    const r = { x: b.x - a.x, y: b.y - a.y };
+    const s = { x: d.x - c.x, y: d.y - c.y };
+    const den = cross2(r.x, r.y, s.x, s.y);
+    if (Math.abs(den) < 1e-9) return null;
+    const qp = { x: c.x - a.x, y: c.y - a.y };
+    const t = cross2(qp.x, qp.y, s.x, s.y) / den;
+    const u = cross2(qp.x, qp.y, r.x, r.y) / den;
+    if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return null;
+    return { x: c.x + (d.x - c.x)*u, y: c.y + (d.y - c.y)*u, z: c.z + (d.z - c.z)*u };
+  }
+
+  // ── query + polygon-level ASA path ──────────────────────────────
   function setQuery(start, goal) {
     startPt = poseFromScenePoint(start, 0);
     goalPt = poseFromScenePoint(goal, 0);
@@ -517,36 +1016,35 @@ async function boot() {
     if (startPt) S.markers.add(poseArrow(startPt, COL.start));
     if (goalPt) S.markers.add(poseArrow(goalPt, COL.goal));
 
-    // Disabled feature: Planned path.
-    // if (!startPt || !goalPt) { drawRoute(null); return; }
-    // const sc = nearestCell(f, startPt.x, startPt.y, startPt.z);
-    // const gc = nearestCell(f, goalPt.x, goalPt.y, goalPt.z);
-    // // start heading: configured layer maps onto [0,2pi); snap to feasible
-    // const wantL = ((startPt.layer ? startPt.layer - 1 : 0) % f.nLayers + f.nLayers) % f.nLayers;
-    // const sL = nearestFeasibleLayer(f, sc, wantL);
-    // const route = plan(sc, sL, gc);
-    // drawRoute(route);
+    if (!startPt || !goalPt) {
+      S.lastPlanDebug = null;
+      window.__se2ExplorerLastPlanDebug = null;
+      writePlanDebug(null);
+      drawRoute(null, "Set both start and goal poses.");
+      return;
+    }
+    const result = planAsa(startPt, goalPt);
+    S.lastPlanDebug = result.debug || null;
+    window.__se2ExplorerLastPlanDebug = S.lastPlanDebug;
+    writePlanDebug(S.lastPlanDebug);
+    drawRoute(result.route, result.message);
   }
 
-  /*
-   * Disabled feature: Planned path.
-   *
-   * Path drawing and route stats are disabled with the span-cell planner.
-   *
-  function drawRoute(route) {
+  function drawRoute(route, message) {
     S.pathGroup.clear();
     S.route = route;
     if (!route || route.length < 2) {
       $("stat-len").textContent = "—";
       $("stat-cost").textContent = route ? "—" : "no path";
-      setRobotAt(0);
+      if (message) setHint(message);
       return;
     }
     // dedupe consecutive positions (in-place rotations repeat a point and
     // would make the Catmull-Rom tube degenerate)
     const pts = [];
+    const zOffset = pathHeightOffset();
     for (const p of route) {
-      const v = [p.x, p.y, p.z + 0.07], last = pts[pts.length - 1];
+      const v = [p.x, p.y, p.z + zOffset], last = pts[pts.length - 1];
       if (!last || Math.hypot(v[0] - last[0], v[1] - last[1], v[2] - last[2]) > 1e-4) pts.push(v);
     }
     if (pts.length > 1) S.pathGroup.add(polyline(pts, COL.path, 0.05, 1.0, true));
@@ -569,9 +1067,8 @@ async function boot() {
     $("stat-len").textContent = len.toFixed(2) + " m";
     $("stat-cost").textContent = fwd.toFixed(2) + " m fwd · " + lat.toFixed(2) +
       " m lat · " + (turn*180/Math.PI).toFixed(0) + "° turn";
-    S.t = 0; $("route").value = "0"; setRobotAt(0);
+    if (message) setHint(message);
   }
-   */
 
   /*
    * Disabled feature: Robot footprint.
@@ -707,22 +1204,16 @@ async function boot() {
   bindToggle("toggle-mesh", () => S.env);
   bindToggle("toggle-cells", () => S.cells.mesh);
   bindToggle("toggle-polys", () => S.polyGraph ? S.polyGraph.group : null);
-  // Disabled feature: Planned path.
-  // bindToggle("toggle-path", () => S.pathGroup);
+  bindToggle("toggle-path", () => S.pathGroup);
   // Disabled feature: Robot footprint.
   // bindToggle("toggle-robot", () => S.robot);
-  // Disabled feature: ASA reference (ROS).
-  // bindToggle("toggle-ref", () => S.refGroup);
   function applyToggles() {
     setToggleVisible("toggle-mesh", () => S.env);
     setToggleVisible("toggle-cells", () => S.cells.mesh);
     setToggleVisible("toggle-polys", () => S.polyGraph ? S.polyGraph.group : null);
-    // Disabled feature: Planned path.
-    // setToggleVisible("toggle-path", () => S.pathGroup);
+    setToggleVisible("toggle-path", () => S.pathGroup);
     // Disabled feature: Robot footprint.
     // setToggleVisible("toggle-robot", () => S.robot);
-    // Disabled feature: ASA reference (ROS).
-    // setToggleVisible("toggle-ref", () => S.refGroup);
   }
   function bindToggle(id, get) {
     const cb = $(id); if (!cb) return;
@@ -731,6 +1222,16 @@ async function boot() {
   function setToggleVisible(id, get) {
     const cb = $(id), o = get();
     if (cb && o) o.visible = cb.checked;
+  }
+
+  function writePlanDebug(debug) {
+    const el = $("plan-debug-json");
+    if (el) el.textContent = debug ? JSON.stringify(debug) : "";
+  }
+
+  function pathHeightOffset() {
+    const h = S && S.scene && S.scene.agent ? Number(S.scene.agent.height) : NaN;
+    return Number.isFinite(h) ? h * 0.5 : 0.07;
   }
 
   function armPoseTool(target) {
@@ -866,9 +1367,6 @@ async function boot() {
     return g;
   }
    */
-  /*
-   * Disabled feature: Planned path / ASA reference (ROS).
-   *
   function polyline(pts, color, radius, opacity, emissive) {
     const v = pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
     const curve = new THREE.CatmullRomCurve3(v, false, "catmullrom", 0.2);
@@ -877,7 +1375,6 @@ async function boot() {
       color, roughness: 0.4, transparent: opacity < 1, opacity,
       emissive: emissive ? color : 0x000000, emissiveIntensity: emissive ? 0.5 : 0 }));
   }
-   */
   function setHint(t) { const e = $("query-hint"); if (e) e.textContent = t; }
   function setLoading(t) {
     const e = $("viewer-loading"); if (!e) return;
@@ -928,6 +1425,14 @@ function swap(a, i, j) { const t = a[i]; a[i] = a[j]; a[j] = t; }
 
 function showError(err) {
   console.error(err);
+  const detail = err && (err.stack || err.message || String(err)) || "Unknown explorer error.";
   const e = document.getElementById("viewer-loading");
-  if (e) { e.style.display = "block"; e.style.color = "#fca5a5"; e.textContent = "Could not load the explorer."; }
+  if (e) {
+    e.style.display = "block";
+    e.style.color = "#fca5a5";
+    e.textContent = "Could not load the explorer.";
+    e.title = detail;
+  }
+  const debug = document.getElementById("plan-debug-json");
+  if (debug) debug.textContent = JSON.stringify({ error: detail });
 }
