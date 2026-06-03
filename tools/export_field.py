@@ -37,30 +37,6 @@ def wait(topic, typ, timeout):
     return rospy.wait_for_message(topic, typ, timeout=timeout)
 
 
-def build_path(points, with_yaw=True, with_action=False):
-    """Deduplicate consecutive waypoints into a list of plain dicts.
-
-    `with_yaw` keeps the heading (initial A* / second A* stages); the string
-    pulling stage has no orientation so it is dropped. `with_action` keeps the
-    SE2 action-type code (only meaningful for the published mission path)."""
-    path = []
-    last = None
-    for w in points:
-        key = (round(w.x, 4), round(w.y, 4), round(w.z, 4))
-        if with_yaw:
-            key = key + (round(w.yaw, 5),)
-        if key == last:
-            continue
-        last = key
-        rec = {"x": key[0], "y": key[1], "z": key[2]}
-        if with_yaw:
-            rec["yaw"] = key[3]
-        if with_action:
-            rec["action"] = int(w.action_type)
-        path.append(rec)
-    return path
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene-dir", required=True)
@@ -71,8 +47,6 @@ def main():
 
     span_area = wait(NODE + "/navigation_mesh_span_area", MarkerArray, args.timeout)
     mission = wait("/se2navmesh_mission", SE2Path, args.timeout)
-    raw_mission = wait("/se2navmesh_raw_path", SE2Path, args.timeout)
-    straight_mission = wait("/se2navmesh_straight_path", SE2Path, args.timeout)
 
     bits = int(get("num_yaw_layers_pi", 20))
     layer_mask = (1 << bits) - 1
@@ -109,14 +83,16 @@ def main():
     with open(args.scene_dir + "/field.bin", "wb") as f:
         f.write(cells)
 
-    # --- ASA path stages ---
-    # Stage 3 (second A*, with yaw + action codes) is also the reference path.
-    reference_path = build_path(mission.points, with_yaw=True, with_action=True)
-    asa_stages = {
-        "initialAstar": build_path(raw_mission.points, with_yaw=True),   # stage 1: with orientation
-        "stringPull": build_path(straight_mission.points, with_yaw=False),  # stage 2: no orientation
-        "secondAstar": reference_path,                                   # stage 3: with orientation
-    }
+    # --- reference path (continuous yaw) ---
+    path = []
+    last = None
+    for w in mission.points:
+        cur = (round(w.x, 4), round(w.y, 4), round(w.z, 4), round(w.yaw, 5))
+        if cur == last:
+            continue
+        path.append({"x": cur[0], "y": cur[1], "z": cur[2], "yaw": cur[3],
+                     "action": int(w.action_type)})
+        last = cur
 
     scene = {
         "id": get("__scene_id", "scene"),
@@ -141,18 +117,14 @@ def main():
                   "z": float(get("start_z")), "layer": int(get("start_layer", 1))},
         "goal": {"x": float(get("goal_x")), "y": float(get("goal_y")),
                  "z": float(get("goal_z")), "layer": int(get("goal_layer", 1))},
-        "referencePath": reference_path,
-        "asaStages": asa_stages,
+        "referencePath": path,
     }
     with open(args.scene_dir + "/scene.json", "w") as f:
         json.dump(scene, f, indent=2)
 
-    rospy.loginfo("exported %d cells; ASA stages: initial=%d, string=%d, second=%d -> %s",
-                  count, len(asa_stages["initialAstar"]), len(asa_stages["stringPull"]),
-                  len(asa_stages["secondAstar"]), args.scene_dir)
-    print("FIELD_EXPORT_OK cells=%d initial=%d string=%d second=%d" % (
-        count, len(asa_stages["initialAstar"]), len(asa_stages["stringPull"]),
-        len(asa_stages["secondAstar"])))
+    rospy.loginfo("exported %d cells, %d path points -> %s",
+                  count, len(path), args.scene_dir)
+    print("FIELD_EXPORT_OK cells=%d path=%d" % (count, len(path)))
 
 
 if __name__ == "__main__":

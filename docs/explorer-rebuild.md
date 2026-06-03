@@ -26,18 +26,18 @@ Per scene (selectable, 6 HM3D scenes):
 2. **Yaw-dependent traversability field** — a colored carpet of surface cells, drawn
    binary: **safe** (fits at every heading) vs **restricted** (fits at only some).
    This makes the paper's core claim tangible.
-3. **Live in-browser planning** — click a start and a goal; a yaw-aware path is
+3. **Final SE(2) NavMesh polygons** — a toggleable overlay of the Detour polygon
+   graph exported by `se2_navmesh_static`, drawn as uniform semi-transparent blue
+   polygons with light-blue outlines. The layer is enabled by default in the same
+   checkbox group as scene mesh, traversability field, path, robot, and ASA reference.
+4. **Live in-browser planning** — click a start and a goal; a yaw-aware path is
    planned by **lattice A\*** over `(cell, heading)` on the exported field, and the
-   robot footprint sweeps along it.
-4. **ASA pipeline stepper** — for each scene's reference query, the explorer overlays
-   the real ROS planner's three stages (initial A\* / string pulling / second A\*).
-   Stages 1 & 3 are drawn with heading arrows; stage 2 (string pulling) is positions
-   only — the morph zig-zag → straight → re-yawed is visible by stepping the buttons.
-   (This replaced the old hand-drawn 2D SVG ASA cartoon.)
+   robot footprint sweeps along it. The configured ASA query is a toggleable
+   reference.
 
 ## 3. Architecture / data flow
 
-Two independent offline pipelines produce three static files per scene; the web app
+Offline pipelines produce five static files per scene; the web app
 consumes them. Everything stays in **one coordinate frame** (the navmesh / OBJ frame,
 Z-up), so nothing is transformed at runtime.
 
@@ -54,20 +54,39 @@ Z-up), so nothing is transformed at runtime.
          | gltfpack  (-si simplify + -c meshopt)         |   (scrape latched markers)
          v                                               v
   static/scenes/<dir>/scene.glb  <---- same Z-up navmesh frame ---->  field.bin + scene.json
+                                                         |
+                                                         |  map_input_polygon_export.launch
+                                                         |  ExportNavMeshPolygons.srv
+                                                         v
+                                                    polyfield.bin + polyfield.json
                          \                                          /
                           \                                        /
                            v                                      v
                          static/js/explorer.js  (Three.js GLTFLoader + MeshoptDecoder,
-                          instanced safe/restricted field, lattice-A* directional planner)
+                          instanced safe/restricted field, polygon overlay,
+                          lattice-A* directional planner)
 ```
 
 `field.bin` is a flat little-endian array of `[float32 x, y, z, uint32 mask]` per
 walkable surface cell; the low `yawBits` (=20) bits of `mask` are the feasible
 headings over `[0, pi)` (the cuboid footprint is 180-deg symmetric, so heading `L`
 and `L+bits` share feasibility). `scene.json` carries agent dims, yaw-layer info,
-bounds, the configured start/goal, the ASA reference path (`referencePath`), and an
-`asaStages` block — `{initialAstar, stringPull, secondAstar}`, each an array of
-`{x,y,z[,yaw]}` (string pulling has no `yaw`). `secondAstar` equals `referencePath`.
+bounds, the configured start/goal, and the ASA reference path.
+
+`polyfield.bin` is the final Detour polygon graph, exported directly from
+`dtNavMesh`. `polyfield.json` is its small sidecar with format, coordinate frame,
+counts, bounds, and section metadata. The binary contains:
+
+- header: magic/version/yaw metadata/counts;
+- global vertices in ROS/navmesh coordinates;
+- polygon records with `dtPolyRef`, vertex range, neighbor range, yaw mask, area,
+  flags, tile ids, and centroid;
+- a packed polygon vertex-index table;
+- adjacency records with neighbor polygon id, neighbor ref, edge id, and portal
+  endpoints.
+
+The current explorer uses the polygon vertices and indices for display. The exported
+neighbor records are intentionally kept for future polygon-level browser planning.
 
 ## 4. File inventory
 
@@ -75,7 +94,7 @@ bounds, the configured start/goal, the ASA reference path (`referencePath`), and
 - `static/js/explorer.js` — the viewer + the lattice-A\* planner.
 - `index.html` (`#explorer` section) + `static/css/index.css` (legend swatches).
 - `static/scenes/index.json` — scene list (`dir`, `id`, `name`, `blurb`).
-- `static/scenes/<dir>/{scene.glb, field.bin, scene.json}` — per-scene assets.
+- `static/scenes/<dir>/{scene.glb, field.bin, scene.json, polyfield.bin, polyfield.json}` — per-scene assets.
 
 **Mesh pipeline (no ROS)**
 - `tools/blender_probe_bounds.py` — print a glb's bounds; used to derive the
@@ -92,13 +111,17 @@ bounds, the configured start/goal, the ASA reference path (`referencePath`), and
 **Field pipeline (ROS)**
 - `tools/web_export_field.launch` — build the SE(2) NavMesh headless with span +
   per-cell area (yaw bitmask) publishing enabled; parametrized per scene.
-- `tools/export_field.py` — subscribe to the latched span-area markers + the three
-  planner-path topics (`/se2navmesh_mission`, `/se2navmesh_raw_path`,
-  `/se2navmesh_straight_path`), write `field.bin` + `scene.json` (incl. `asaStages`).
-  The raw/straight topics are published by `SE2NavMeshStatic` alongside the mission;
-  the initial A\* path's per-node yaw is surfaced via a `pathNodeLayers` out-param
-  added to `dtNavMeshQuery::findPathMultiLayer`.
+- `tools/export_field.py` — subscribe to the latched span-area markers + planner
+  mission, write `field.bin` + `scene.json`.
 - `tools/export_all_fields.sh` — batch over all scenes (launch node, export, tear down).
+
+**Polygon graph pipeline (ROS)**
+- `se2_navmesh_ros/launch/map_input_polygon_export.launch` — build a scene and export
+  `polyfield.bin` + `polyfield.json`.
+- `se2_navmesh_ros/utils/NavMeshPolygonExporter` — reusable C++ exporter that reads
+  final `dtNavMesh` tiles, polygons, links, masks, and portal edges.
+- `se2_navmesh_msgs/ExportNavMeshPolygons.srv` — service used by
+  `se2_navmesh_static` for on-demand polygon graph export.
 
 **QA / preview**
 - `tools/verify_scenes.py` — for every scene: field record count vs `scene.json`,
@@ -117,6 +140,8 @@ tools/build_gltfpack.sh          # once, if tools/bin/gltfpack is missing/incomp
 tools/make_all_glbs.sh           # textured scene.glb for every scene (skips existing)
 source <ws>/devel/setup.bash
 tools/export_all_fields.sh       # field.bin + scene.json for every scene (skips existing)
+# Use map_input_polygon_export.launch, or the ~export_navmesh_polygons service,
+# to regenerate polyfield.bin + polyfield.json for each scene.
 python3 tools/verify_scenes.py   # QA all scenes
 ```
 
@@ -172,21 +197,24 @@ The traversability carpet is drawn as a **binary safe/restricted** field (safe =
 at every heading, restricted = fits at only some); the exporter drops cells feasible
 at no heading, so there is no third "blocked" state and no heading slider.
 
-The *live* click-to-plan path is **faithful to the SE(2) representation** (it plans on
-the real exported field with the paper's cost terms) but is an **approximation of the
-full C++ ASA pipeline** (A\*–string-pulling–A\*), not bit-identical. The UI says so. The
-**ASA pipeline stepper**, by contrast, shows the *exact* ROS planner output for each
-scene's reference query (exported into `asaStages`).
+The `SE(2) NavMesh` checkbox displays the final polygon graph from `polyfield.bin`.
+It is checked by default, and `explorer.js` applies the checkbox state directly when
+each scene finishes loading, so the polygon overlay appears on first load as well as
+after scene changes. Polygon faces are always semi-transparent blue; the display does
+not color polygons by yaw mask.
+
+This is **faithful to the SE(2) representation** (it plans on the real exported field
+with the paper's cost terms) but is an **approximation of the full C++ ASA pipeline**
+(A\*–string-pulling–A\*), not bit-identical. The UI says so.
 
 ## 8. Known limitations / future ideas
 
 - **Textures** are JPEG at 512 px (the ~2.5 MB floor per scene). KTX2/Basis (build
   gltfpack with basisu, add `KTX2Loader` + transcoder) would roughly halve size and
   sharpen them.
-- **Planner fidelity** — the real ASA stages are now exported per scene and shown by
-  the stepper, but only for each scene's *reference* query. Porting the full ASA
-  (string pulling + yaw refinement) to JS would let arbitrary click-queries show the
-  exact pipeline live, instead of the current in-browser lattice-A\* approximation.
+- **Planner fidelity** — porting the real ASA (string pulling + yaw refinement) to JS,
+  or using the exported Detour polygon graph for browser-side planning, would match
+  the paper more closely.
 - **Cell rendering** is one `InstancedMesh` of quads; fine to ~15 k cells. Larger
   scenes may want a merged colored mesh.
 - Start/goal snapping is a brute-force nearest-cell scan (fine at <16 k cells).
