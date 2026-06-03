@@ -30,12 +30,29 @@ const COL = {
   safe: new THREE.Color(0x32c771),       // fits at every heading
   restricted: new THREE.Color(0xffc23d), // fits at only some headings
   path: 0xff6a4d,
+  initialAstar: 0xfacc15,
+  initialAstarArrow: 0xca8a04,
+  stringPull: 0x1d4ed8,
+  secondAstar: 0xf59e0b,
+  secondAstarArrow: 0xc2410c,
   ref: 0x8aa0c8,
   navmesh: new THREE.Color(0x6db8f2),
   navmeshEdge: 0xd7ebff,
   start: 0x00d85a,
   goal: 0xff1f2d,
   robot: 0x33d6c0,
+};
+
+const ASA_STAGE_META = {
+  initialAstar: {
+    caption: "Initial Search over polygon-edge/yaw states: a feasible path through portal midpoints, with a valid heading at every node.",
+  },
+  stringPull: {
+    caption: "Path Straightening shortens the path inside the polygon corridor. Positions only - orientation is intentionally dropped at this stage.",
+  },
+  secondAstar: {
+    caption: "Yaw Refinement re-optimizes heading along the straightened path, restoring yaw that matches the new direction of motion.",
+  },
 };
 
 const ASA_DEFAULTS = {
@@ -165,17 +182,14 @@ async function boot() {
     const planner = polyGraph ? buildAsaPlanner(polyGraph.poly, scene) : null;
 
     const pathGroup = new THREE.Group();
+    const asaStageGroup = new THREE.Group();
     const markers = new THREE.Group();
-    // Disabled feature: Robot footprint.
-    // const robot = buildRobot(scene.agent);
-    group.add(pathGroup, markers);
-    // Disabled feature: Robot footprint.
-    // group.add(refGroup, robot);
+    const robot = buildRobot(scene.agent);
+    group.add(pathGroup, asaStageGroup, markers, robot);
 
     S = { meta, scene, field, cells, polyGraph, planner, group, env, rayTargets,
-          pathGroup, markers, route: null, t: 0, playing: false };
-    // Disabled feature: Robot footprint.
-    // S.robot = robot;
+          pathGroup, asaStageGroup, markers, route: null, asaStages: null,
+          asaStage: 2, t: 0, routeTimeline: null, playRate: 1, playLastMs: null, playing: false, robot };
 
     // camera framing
     const b = scene.field.bounds;
@@ -388,8 +402,7 @@ async function boot() {
     mesh.instanceColor.needsUpdate = true;
     $("stat-cells").textContent = f.n.toLocaleString();
     $("stat-restricted").textContent = nRestricted.toLocaleString();
-    // Disabled feature: Robot footprint.
-    // if (S.robot && !S.route) orientRobot();
+    if (S.robot && !S.route) orientRobot();
   }
 
   // ── planner: polygon-level ASA over exported Detour graph ───────
@@ -478,6 +491,7 @@ async function boot() {
 
     const first = findPathMultiLayerWeb(P, s, g);
     if (!first) return { route: null, message: "ASA first A* could not find a polygon corridor." };
+    const initialRoute = routeFromNodes(first.nodes, P);
     const corridor = extractCorridor(P, first.nodes);
     if (corridor.length < 1) return { route: null, message: "ASA corridor extraction failed." };
     debug.firstNodeRefs = first.nodes.map((n) => [P.polygons[n.a].ref, P.polygons[n.b].ref, n.layer]);
@@ -487,8 +501,50 @@ async function boot() {
     debug.crossings = crossings.debug;
     const second = findPathMultiLayerFilteredWeb(P, s, g, crossings.map);
     if (!second) return { route: null, message: "ASA second A* could not refine the corridor." };
+    const secondRoute = routeFromNodes(second.nodes, P);
     debug.secondNodeRefs = second.nodes.map((n) => [P.polygons[n.a].ref, P.polygons[n.b].ref, n.layer]);
-    return { route: routeFromNodes(second.nodes, P), cost: second.cost, corridor, debug, message: "ASA path computed." };
+    debug.stageSummary = {
+      initialAstar: { points: initialRoute.length },
+      stringPull: { points: crossings.corners.length, crossings: crossings.debug.length },
+      secondAstar: { points: secondRoute.length },
+    };
+    return {
+      route: secondRoute,
+      cost: second.cost,
+      corridor,
+      debug,
+      message: "ASA path computed.",
+      stages: {
+        initialAstar: {
+          label: "Initial Search",
+          color: COL.initialAstar,
+          arrowColor: COL.initialAstarArrow,
+          hasYaw: true,
+          caption: ASA_STAGE_META.initialAstar.caption,
+          route: initialRoute,
+          nodeRefs: debug.firstNodeRefs,
+        },
+        stringPull: {
+          label: "Path Straightening",
+          color: COL.stringPull,
+          hasYaw: false,
+          caption: ASA_STAGE_META.stringPull.caption,
+          route: crossings.corners.map((p) => ({ x: p.x, y: p.y, z: p.z })),
+          corridorRefs: debug.corridorRefs,
+          refs: crossings.refs,
+          crossings: crossings.debug,
+        },
+        secondAstar: {
+          label: "Yaw Refinement",
+          color: COL.secondAstar,
+          arrowColor: COL.secondAstarArrow,
+          hasYaw: true,
+          caption: ASA_STAGE_META.secondAstar.caption,
+          route: secondRoute,
+          nodeRefs: debug.secondNodeRefs,
+        },
+      },
+    };
   }
 
   function findNearestPolyMultiLayerWeb(P, pose, layer) {
@@ -724,6 +780,7 @@ async function boot() {
     }
     return {
       corners: straight.points,
+      refs: straight.refs,
       map,
       debug: Array.from(map.entries()).map(([key, pos]) => ({ key, pos: { ...pos } })),
     };
@@ -1018,16 +1075,34 @@ async function boot() {
 
     if (!startPt || !goalPt) {
       S.lastPlanDebug = null;
+      S.asaStages = null;
+      S.route = null;
+      S.routeTimeline = null;
+      S.playing = false;
+      S.playLastMs = null;
+      updateRouteControls();
       window.__se2ExplorerLastPlanDebug = null;
       writePlanDebug(null);
+      showAsaStage(-1);
       drawRoute(null, "Set both start and goal poses.");
       return;
     }
     const result = planAsa(startPt, goalPt);
     S.lastPlanDebug = result.debug || null;
+    S.asaStages = result.stages || null;
     window.__se2ExplorerLastPlanDebug = S.lastPlanDebug;
     writePlanDebug(S.lastPlanDebug);
+    if (!result.route) {
+      S.asaStages = null;
+      S.playing = false;
+    }
     drawRoute(result.route, result.message);
+    S.routeTimeline = buildRouteTimeline(S.route);
+    S.playLastMs = null;
+    if (result.route && S.asaStage < 0) S.asaStage = 2;
+    showAsaStage(S.asaStage);
+    updateRouteControls();
+    setRobotAt(S.t);
   }
 
   function drawRoute(route, message) {
@@ -1039,22 +1114,114 @@ async function boot() {
       if (message) setHint(message);
       return;
     }
-    // dedupe consecutive positions (in-place rotations repeat a point and
-    // would make the Catmull-Rom tube degenerate)
+    const stats = routeStats(route, true);
+    const len = stats.len, fwd = stats.fwd, lat = stats.lat, turn = stats.turn;
+    $("stat-len").textContent = len.toFixed(2) + " m";
+    $("stat-cost").textContent = fwd.toFixed(2) + " m fwd · " + lat.toFixed(2) +
+      " m lat · " + (turn*180/Math.PI).toFixed(0) + "° turn";
+    if (message) setHint(message);
+  }
+
+  function showAsaStage(stageIndex) {
+    if (!S || !S.asaStageGroup) return;
+    S.asaStageGroup.clear();
+    const stages = asaStageList();
+    const active = stages[stageIndex] ? stageIndex : -1;
+    S.asaStage = active;
+    updateAsaStageUi(active, stages);
+    if (active < 0) return;
+    if (!asaPipelineVisible()) return;
+    drawAsaStageRoute(stages[active]);
+  }
+
+  function asaStageList() {
+    const stages = S && S.asaStages;
+    return stages ? [stages.initialAstar, stages.stringPull, stages.secondAstar] : [];
+  }
+
+  function drawAsaStageRoute(stage) {
+    const pts = routePolylinePoints(stage.route);
+    if (pts.length > 1) {
+      S.asaStageGroup.add(polyline(pts, stage.color, 0.0225, 1.0, true));
+    }
+    if (stage.hasYaw) S.asaStageGroup.add(stageHeadingArrows(stage.route, stage.arrowColor || stage.color));
+  }
+
+  function stageHeadingArrows(route, color) {
+    const group = new THREE.Group();
+    const maxArrows = 24;
+    const step = Math.max(1, Math.ceil(route.length / maxArrows));
+    const headLen = Math.max(0.14, Math.min(0.22, (S.scene.agent.length || 0.8) * 0.22));
+    const headRadius = 0.028;
+    const zOffset = pathHeightOffset();
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.35,
+      roughness: 0.38,
+      metalness: 0.0,
+      depthWrite: false,
+    });
+    const geo = new THREE.ConeGeometry(headRadius, headLen, 18);
+    for (let i = 0; i < route.length; i += step) {
+      const p = route[i];
+      if (!Number.isFinite(p.yaw)) continue;
+      const head = new THREE.Mesh(geo, mat);
+      head.position.set(
+        p.x + Math.cos(p.yaw) * headLen * 0.5,
+        p.y + Math.sin(p.yaw) * headLen * 0.5,
+        p.z + zOffset);
+      head.rotation.z = p.yaw - Math.PI / 2;
+      head.renderOrder = 6;
+      group.add(head);
+    }
+    return group;
+  }
+
+  function updateAsaStageUi(active, stages) {
+    document.querySelectorAll("#asa-stage-controls [data-asa-stage]").forEach((btn) => {
+      btn.classList.toggle("is-active", Number(btn.dataset.asaStage) === active);
+    });
+    const caption = $("asa-caption");
+    const statsEl = $("asa-stats");
+    if (!caption || !statsEl) return;
+    if (!stages.length) {
+      caption.textContent = "ASA stages unavailable for this query.";
+      statsEl.innerHTML = "";
+      return;
+    }
+    if (active < 0) {
+      caption.textContent = "Select a stage to overlay the browser planner's A* -> string-pull -> A* path for the active query.";
+      statsEl.innerHTML = "";
+      return;
+    }
+    const stage = stages[active];
+    const stats = routeStats(stage.route, stage.hasYaw);
+    caption.textContent = stage.caption || stage.label;
+    statsEl.innerHTML = "<div><span>Length</span><strong>" + stats.len.toFixed(2) + " m</strong></div>" +
+      (stage.hasYaw
+        ? "<div><span>Fwd · lat · turn</span><strong>" + stats.fwd.toFixed(2) + " · " +
+          stats.lat.toFixed(2) + " m · " + (stats.turn*180/Math.PI).toFixed(0) + "°</strong></div>"
+        : "");
+  }
+
+  function routePolylinePoints(route) {
     const pts = [];
     const zOffset = pathHeightOffset();
-    for (const p of route) {
+    for (const p of route || []) {
       const v = [p.x, p.y, p.z + zOffset], last = pts[pts.length - 1];
       if (!last || Math.hypot(v[0] - last[0], v[1] - last[1], v[2] - last[2]) > 1e-4) pts.push(v);
     }
-    if (pts.length > 1) S.pathGroup.add(polyline(pts, COL.path, 0.05, 1.0, true));
-    // stats: split travel into forward/lateral relative to the heading held on
-    // each segment, so the directional cost's effect is visible at a glance.
+    return pts;
+  }
+
+  function routeStats(route, hasYaw) {
     let len = 0, fwd = 0, lat = 0, turn = 0;
-    for (let i = 1; i < route.length; i++) {
+    for (let i = 1; route && i < route.length; i++) {
       const dx = route[i].x - route[i-1].x, dy = route[i].y - route[i-1].y, dz = route[i].z - route[i-1].z;
       const d = Math.hypot(dx, dy, dz);
       len += d;
+      if (!hasYaw) continue;
       if (d > 1e-9) {
         const diff = Math.atan2(dy, dx) - route[i-1].yaw;
         fwd += d * Math.abs(Math.cos(diff));
@@ -1064,38 +1231,84 @@ async function boot() {
       if (a > Math.PI) a = 2*Math.PI - a;
       turn += a;
     }
-    $("stat-len").textContent = len.toFixed(2) + " m";
-    $("stat-cost").textContent = fwd.toFixed(2) + " m fwd · " + lat.toFixed(2) +
-      " m lat · " + (turn*180/Math.PI).toFixed(0) + "° turn";
-    if (message) setHint(message);
+    return { len, fwd, lat, turn };
   }
 
-  /*
-   * Disabled feature: Robot footprint.
-   *
-   * The footprint sweep depended on the disabled planned path.
-   *
   // ── robot footprint along route ─────────────────────────────────
   function setRobotAt(t) {
     if (!S || !S.robot) return;
     const route = S.route;
     if (!route || route.length < 2) { orientRobot(); return; }
-    const f = t * (route.length - 1);
-    const i = Math.min(route.length - 2, Math.floor(f));
-    const k = f - i, a = route[i], b = route[i + 1];
-    S.robot.position.set(a.x + (b.x-a.x)*k, a.y + (b.y-a.y)*k, a.z + (b.z-a.z)*k + 0.04);
+    S.t = Math.max(0, Math.min(1, t));
+    const timed = routePoseAt(S.t);
+    const i = timed.index, k = timed.u, a = route[i], b = route[i + 1];
+    const zOffset = pathHeightOffset();
+    S.robot.position.set(a.x + (b.x-a.x)*k, a.y + (b.y-a.y)*k, a.z + (b.z-a.z)*k + zOffset);
     let yaw = a.yaw + shortestAngle(a.yaw, b.yaw) * k;
     S.robot.rotation.set(0, 0, yaw);
   }
+  function routePoseAt(t) {
+    const route = S.route;
+    const timeline = S.routeTimeline;
+    if (!timeline || !timeline.total || timeline.cumulative.length !== route.length) {
+      const f = t * (route.length - 1);
+      const index = Math.min(route.length - 2, Math.floor(f));
+      return { index, u: f - index };
+    }
+    const target = Math.max(0, Math.min(1, t)) * timeline.total;
+    let lo = 0, hi = timeline.cumulative.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (timeline.cumulative[mid] < target) lo = mid + 1;
+      else hi = mid;
+    }
+    const index = Math.max(0, Math.min(route.length - 2, lo - 1));
+    const t0 = timeline.cumulative[index], t1 = timeline.cumulative[index + 1];
+    const u = t1 > t0 ? (target - t0) / (t1 - t0) : 0;
+    return { index, u: Math.max(0, Math.min(1, u)) };
+  }
+  function buildRouteTimeline(route) {
+    const cumulative = [0];
+    if (!route || route.length < 2) return { cumulative, total: 0 };
+    const p = S && S.planner ? S.planner.params : ASA_DEFAULTS;
+    const lonV = Math.max(1e-6, p.maxLonVelocity || ASA_DEFAULTS.maxLonVelocity);
+    const latV = Math.max(1e-6, p.maxLatVelocity || ASA_DEFAULTS.maxLatVelocity);
+    const angV = Math.max(1e-6, p.maxAngVelocity || ASA_DEFAULTS.maxAngVelocity);
+    let total = 0;
+    for (let i = 1; i < route.length; i++) {
+      const a = route[i - 1], b = route[i];
+      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+      const dist = Math.hypot(dx, dy, dz);
+      let moveTime = 0;
+      if (dist > 1e-9) {
+        const diff = Math.atan2(dy, dx) - a.yaw;
+        moveTime = dist * Math.abs(Math.cos(diff)) / lonV +
+          dist * Math.abs(Math.sin(diff)) / latV;
+      }
+      const yawTime = Math.abs(shortestAngle(a.yaw || 0, b.yaw || 0)) / angV;
+      total += moveTime + yawTime;
+      cumulative.push(total);
+    }
+    return { cumulative, total };
+  }
   function orientRobot() {
     if (!S || !S.robot || !startPt) return;
-    const f = S.field, c = nearestCell(f, startPt.x, startPt.y, startPt.z);
-    const wantL = ((startPt.layer ? startPt.layer - 1 : 0) % f.nLayers + f.nLayers) % f.nLayers;
-    const L = nearestFeasibleLayer(f, c, wantL);
-    S.robot.position.set(f.px[c], f.py[c], f.pz[c] + 0.04);
-    S.robot.rotation.set(0, 0, (L < 0 ? wantL : L) * f.yawStep);
+    S.robot.position.set(startPt.x, startPt.y, startPt.z + pathHeightOffset());
+    S.robot.rotation.set(0, 0, startPt.yaw || 0);
   }
-   */
+  function updateRouteControls() {
+    const slider = $("route"), play = $("play"), rate = $("play-rate");
+    const enabled = !!(S && S.route && S.route.length > 1);
+    if (slider) {
+      slider.disabled = !enabled;
+      slider.value = String(Math.round((S && S.t || 0) * 1000));
+    }
+    if (play) {
+      play.disabled = !enabled;
+      play.textContent = S && S.playing ? "Pause" : "Play route";
+    }
+    if (rate) rate.textContent = (S ? S.playRate : 1) + "x";
+  }
 
   // ── interaction: RViz-style pose tool for start / goal ──────────
   const ray = new THREE.Raycaster();
@@ -1187,41 +1400,71 @@ async function boot() {
   }
 
   // ── UI wiring ───────────────────────────────────────────────────
-  // Disabled feature: Planned path / Robot footprint.
-  // $("route").addEventListener("input", (e) => {
-  //   S.playing = false; $("play").textContent = "Play route";
-  //   S.t = Number(e.target.value) / 1000; setRobotAt(S.t);
-  // });
-  // $("play").addEventListener("click", () => {
-  //   if (!S.route) return;
-  //   S.playing = !S.playing; $("play").textContent = S.playing ? "Pause" : "Play route";
-  // });
+  $("route").addEventListener("input", (e) => {
+    if (!S) return;
+    S.playing = false;
+    S.t = Number(e.target.value) / 1000;
+    setRobotAt(S.t);
+    updateRouteControls();
+  });
+  $("play").addEventListener("click", () => {
+    if (!S || !S.route) return;
+    S.playing = !S.playing;
+    S.playLastMs = null;
+    updateRouteControls();
+  });
+  $("play-rate").addEventListener("click", () => {
+    if (!S) return;
+    const rates = [1, 2, 4, 8, 16];
+    const i = rates.indexOf(S.playRate);
+    S.playRate = rates[(i + 1) % rates.length];
+    S.playLastMs = null;
+    updateRouteControls();
+  });
   $("reset-view").addEventListener("click", frameView);
   $("reset-query").addEventListener("click", () => { setQuery(S.scene.start, S.scene.goal); });
   $("pose-tool-start").addEventListener("click", () => armPoseTool("start"));
   $("pose-tool-goal").addEventListener("click", () => armPoseTool("goal"));
+  document.querySelectorAll("#asa-stage-controls [data-asa-stage]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!S) return;
+      const idx = Number(btn.dataset.asaStage);
+      S.asaStage = idx;
+      setAsaPipelineVisible(true);
+      showAsaStage(S.asaStage);
+    });
+  });
 
   bindToggle("toggle-mesh", () => S.env);
   bindToggle("toggle-cells", () => S.cells.mesh);
   bindToggle("toggle-polys", () => S.polyGraph ? S.polyGraph.group : null);
-  bindToggle("toggle-path", () => S.pathGroup);
-  // Disabled feature: Robot footprint.
-  // bindToggle("toggle-robot", () => S.robot);
+  bindToggle("toggle-path", () => null, () => showAsaStage(S.asaStage));
+  bindToggle("toggle-robot", () => S.robot);
   function applyToggles() {
     setToggleVisible("toggle-mesh", () => S.env);
     setToggleVisible("toggle-cells", () => S.cells.mesh);
     setToggleVisible("toggle-polys", () => S.polyGraph ? S.polyGraph.group : null);
-    setToggleVisible("toggle-path", () => S.pathGroup);
-    // Disabled feature: Robot footprint.
-    // setToggleVisible("toggle-robot", () => S.robot);
+    showAsaStage(S.asaStage);
+    setToggleVisible("toggle-robot", () => S.robot);
   }
-  function bindToggle(id, get) {
+  function bindToggle(id, get, afterChange) {
     const cb = $(id); if (!cb) return;
-    cb.addEventListener("change", () => setToggleVisible(id, get));
+    cb.addEventListener("change", () => {
+      setToggleVisible(id, get);
+      if (afterChange) afterChange();
+    });
   }
   function setToggleVisible(id, get) {
     const cb = $(id), o = get();
     if (cb && o) o.visible = cb.checked;
+  }
+  function asaPipelineVisible() {
+    const cb = $("toggle-path");
+    return !cb || cb.checked;
+  }
+  function setAsaPipelineVisible(visible) {
+    const cb = $("toggle-path");
+    if (cb) cb.checked = visible;
   }
 
   function writePlanDebug(debug) {
@@ -1284,11 +1527,16 @@ async function boot() {
   window.addEventListener("resize", resize); resize();
 
   function tick() {
-    // Disabled feature: Planned path / Robot footprint.
-    // if (S && S.playing && S.route) {
-    //   S.t += 0.004; if (S.t > 1) S.t = 0;
-    //   $("route").value = String(Math.round(S.t * 1000)); setRobotAt(S.t);
-    // }
+    if (S && S.playing && S.route) {
+      const now = performance.now();
+      const dt = S.playLastMs == null ? 0 : (now - S.playLastMs) / 1000;
+      S.playLastMs = now;
+      const duration = S.routeTimeline && S.routeTimeline.total ? S.routeTimeline.total : 4.0;
+      S.t += dt * (S.playRate || 1) / duration; if (S.t > 1) S.t = 0;
+      const slider = $("route");
+      if (slider) slider.value = String(Math.round(S.t * 1000));
+      setRobotAt(S.t);
+    }
     controls.update();
     renderer.render(world, camera);
     requestAnimationFrame(tick);
@@ -1350,23 +1598,22 @@ async function boot() {
     if (!S || !S.field || !S.field.yawStep) return 1;
     return Math.round(normalizeYaw(yaw) / S.field.yawStep) % S.field.nLayers + 1;
   }
-  /*
-   * Disabled feature: Robot footprint.
-   *
   function buildRobot(agent) {
+    const length = Number(agent && agent.length) || 0.8;
+    const width = Number(agent && agent.width) || 0.5;
+    const height = Number(agent && agent.height) || 0.3;
     const g = new THREE.Group();
-    const box = new THREE.BoxGeometry(agent.length, agent.width, 0.14);
+    const box = new THREE.BoxGeometry(length, width, height);
     g.add(new THREE.Mesh(box, new THREE.MeshStandardMaterial({
-      color: COL.robot, transparent: true, opacity: 0.42, roughness: 0.5 })));
+      color: COL.robot, transparent: true, opacity: 0.16, roughness: 0.5, depthWrite: false })));
     g.add(new THREE.LineSegments(new THREE.EdgesGeometry(box),
       new THREE.LineBasicMaterial({ color: COL.robot })));
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.22, 14),
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(Math.max(0.06, width * 0.12), Math.max(0.18, length * 0.24), 14),
       new THREE.MeshStandardMaterial({ color: COL.path, roughness: 0.4 }));
-    cone.rotation.z = -Math.PI / 2; cone.position.set(agent.length / 2 + 0.13, 0, 0);
+    cone.rotation.z = -Math.PI / 2; cone.position.set(length / 2 + Math.max(0.1, length * 0.14), 0, 0);
     g.add(cone); g.renderOrder = 5;
     return g;
   }
-   */
   function polyline(pts, color, radius, opacity, emissive) {
     const v = pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
     const curve = new THREE.CatmullRomCurve3(v, false, "catmullrom", 0.2);

@@ -47,12 +47,21 @@ Per scene, the Explorer loads and displays:
    navmesh surface.
 5. **Browser-computed ASA path**: the configured query is planned on load, and
    every pose edit replans immediately.
+6. **Online ASA pipeline stages**: the Explorer exposes the live browser result
+   as **Initial Search**, **Path Straightening**, and **Yaw Refinement**. The
+   stage buttons switch the single visible path overlay; the default is
+   **Yaw Refinement**, which is also the final route.
+7. **Robot footprint playback**: the robot frame is built from
+   `scene.json.agent.length`, `width`, and `height`, and can be toggled with the
+   **Robot footprint** checkbox. The route scrubber and **Play route** button
+   animate the footprint along the Yaw Refinement path.
 
 The path tube is also raised by `scene.json`'s `agent.height / 2`, so the drawn
 route appears at robot-body height instead of lying directly on the floor.
 
-The robot footprint sweep/playback remains commented out. It can be re-enabled
-later using the browser-computed route, but it is not part of the current UI.
+Playback is time-parameterized from the same velocity parameters used by the ASA
+cost model: longitudinal velocity, lateral velocity, and angular velocity. The
+speed button cycles through `1x`, `2x`, `4x`, `8x`, and `16x`.
 
 ## 3. Architecture and Data Flow
 
@@ -185,6 +194,19 @@ The displayed `fwd`, `lat`, and `turn` stats are route summaries, not the raw A*
 cost. They split each final route segment into forward/lateral distance relative
 to the segment's starting yaw and accumulate circular yaw deltas.
 
+The playback timeline uses the same decomposition. For each Yaw Refinement
+segment, the browser accumulates:
+
+```text
+forwardDistance / maxLonVelocity
++ lateralDistance / maxLatVelocity
++ yawDelta / maxAngVelocity
+```
+
+The route slider maps uniformly over this cumulative time table, so playback
+speed is uniform in the planner's SE(2) motion-time model rather than uniform in
+waypoint index.
+
 ### 5.3 Corridor and String Pulling
 
 After the first A* succeeds, the browser:
@@ -214,12 +236,30 @@ The debug object records snapped refs/positions/layers, first-stage ref/layer
 nodes, compressed corridor refs, crossing-map entries, and second-stage ref/layer
 nodes.
 
+### 5.5 ASA Pipeline UI and Playback
+
+The Explorer's ASA pipeline controls consume live `planAsa()` output, not
+precomputed `scene.json.asaStages`. The stage data are:
+
+- `initialAstar`: first A* node-chain route with yaw;
+- `stringPull`: Detour-style straightened path positions only;
+- `secondAstar`: filtered yaw-refinement route, also used as the final route.
+
+Only one stage is drawn at a time. Initial Search is yellow, Path Straightening
+is dark blue, and Yaw Refinement is orange-yellow. The yawed stages draw compact
+heading arrow heads only, with no shafts.
+
+The **Planned path** checkbox controls visibility of the selected ASA stage. The
+**Robot footprint** checkbox controls the agent-sized playback frame. The route
+slider and **Play route** always use `secondAstar`, independent of which stage is
+currently selected for display.
+
 ## 6. File Inventory
 
 **Web app**
 
 - `static/js/explorer.js`: viewer, traversability overlay, polygon graph display,
-  browser ASA planner, path display, pose tools.
+  browser ASA planner, online ASA stage display, robot playback, and pose tools.
 - `index.html`: main page and Explorer markup.
 - `static/css/index.css`: Explorer layout and controls.
 - `static/scenes/index.json`: scene list.
@@ -252,7 +292,8 @@ nodes.
 
 **QA / preview**
 
-- `tools/preview_harness.html`: minimal Explorer-only page.
+- `tools/preview_harness.html`: minimal Explorer-only page that mirrors the
+  Explorer controls and keeps the hidden `plan-debug-json` endpoint for tests.
 - `tools/validate_explorer_paths.sh`: headless-Chrome browser ASA sweep.
 - `tools/screenshot_scene.sh`: headless-Chrome screenshot of one scene.
 - `tools/verify_scenes.py`: legacy scene/field QA. Treat planner-specific logic
@@ -339,7 +380,9 @@ Path length = 10.76
   or more bits need a different representation.
 - The Explorer validates configured scene queries. Interactive user-placed poses
   should be spot-checked after changing snapping, cost, or string-pulling logic.
-- Robot footprint sweep/playback is still disabled.
+- Headless Chrome validation can be sensitive to local WebGL/GPU timing. If a
+  scene reports a missing planner hint, rerun that scene before treating it as a
+  planner regression.
 
 ## 11. Environment Notes
 

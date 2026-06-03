@@ -298,6 +298,45 @@ code {
   margin-bottom: 1rem;
 }
 
+.route-control {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.route-control #route {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.route-speed {
+  flex: 0 0 auto;
+  min-width: 3.2rem;
+}
+
+.viewer-asa {
+  margin: 1.1rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid #d9e2ef;
+}
+
+.viewer-asa .asa-stepper {
+  justify-content: flex-start;
+  margin-bottom: 0;
+}
+
+.viewer-asa-caption {
+  margin: 0.7rem 0 0;
+  color: #475569;
+  font-size: 0.86rem;
+  min-height: 3.2em;
+}
+
+.viewer-asa .asa-stats {
+  margin-top: 0.5rem;
+}
+
 .viewer-legend {
   display: grid;
   gap: 0.42rem;
@@ -565,7 +604,7 @@ mjx-container {
 }
 
 /* ── Yaw-feasibility demo ────────────────────────────────────── */
-.yaw-stage-col svg, #asa-svg { width: 100%; height: auto; display: block; }
+.yaw-stage-col svg { width: 100%; height: auto; display: block; }
 
 .demo-readout {
   font-family: 'Google Sans', sans-serif;
@@ -658,23 +697,7 @@ mjx-container {
   font-weight: 700;
 }
 .asa-step-btn.is-active .asa-step-num { background: #13866f; color: #fff; }
-.asa-arrow { color: #cbd5e1; font-weight: 700; }
 
-.demo-info-box {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 0.85rem 1rem;
-  font-size: 0.92rem;
-  color: #475569;
-  min-height: 132px;
-}
-.asa-info-title {
-  font-family: 'Google Sans', sans-serif;
-  font-weight: 700;
-  color: #1e293b;
-  margin-bottom: 0.35rem;
-}
 .asa-stats {
   display: grid;
   gap: 0.4rem;
@@ -908,14 +931,10 @@ mjx-container {
   .seg-track { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .seg-btn { font-size: 0.78rem; padding: 0.35em 0.8em; }
 
-  #yaw-demo .columns,
-  #asa-demo .columns { display: flex; flex-direction: column; }
-  #yaw-demo .column,
-  #asa-demo .column { width: 100%; }
+  #yaw-demo .columns { display: flex; flex-direction: column; }
+  #yaw-demo .column { width: 100%; }
 
   .asa-step-btn { font-size: 0.78rem; padding: 0.35em 0.7em; }
-  .asa-arrow { display: none; }
-  .demo-info-box { min-height: 0; }
 
   .barplot-frame { min-width: 560px; height: 360px; }
   .algo-box { overflow-x: auto; }
