@@ -25,15 +25,37 @@ Per scene (selectable, 6 HM3D scenes):
    baked into the navmesh coordinate frame.
 2. **Yaw-dependent traversability field** — a colored carpet of surface cells, drawn
    binary: **safe** (fits at every heading) vs **restricted** (fits at only some).
-   This makes the paper's core claim tangible.
+   This makes the paper's core claim tangible. The layer is available through the
+   `Traversability field` checkbox, but it is off by default so the textured scene
+   and final polygon graph are the first visual signal.
 3. **Final SE(2) NavMesh polygons** — a toggleable overlay of the Detour polygon
    graph exported by `se2_navmesh_static`, drawn as uniform semi-transparent blue
-   polygons with light-blue outlines. The layer is enabled by default in the same
-   checkbox group as scene mesh, traversability field, path, robot, and ASA reference.
-4. **Live in-browser planning** — click a start and a goal; a yaw-aware path is
-   planned by **lattice A\*** over `(cell, heading)` on the exported field, and the
-   robot footprint sweeps along it. The configured ASA query is a toggleable
-   reference.
+   polygons with light-blue outlines. The layer is enabled by default alongside
+   the scene mesh and traversability field.
+4. **Start/goal inspection markers** — the configured start and goal are shown as
+   editable pose arrows, but route computation is currently disabled. The pose tool
+   mirrors `se2_navmesh_rviz_plugin`'s `StartYawTool` / `GoalYawTool`: click
+   **Set Start** or **Set Goal** to arm a one-shot edit, press on the scene to set
+   `(x,y,z)`, drag to set yaw, and release to commit the pose. Start uses a green
+   arrow; goal uses a red arrow. The arrow display origin is raised by
+   `scene.json`'s `agent.height / 2` so it appears at the robot body height while
+   preserving the actual pose `z`. Clicking the armed button again cancels the
+   pending edit, which leaves normal left-drag orbit controls available.
+
+### Current feature status
+
+The old **Planned path**, **Robot footprint**, and **ASA reference (ROS)** features
+were commented out in June 2026 because they no longer match the Explorer design
+target. The old browser route used a span-cell lattice A\* over `field.bin`, while
+the intended Explorer planner should use the exported Detour polygon graph in
+`polyfield.bin` and reproduce the polygon-level ASA semantics of
+`se2_navmesh_static`. The disabled code remains in `static/js/explorer.js`,
+`index.html`, and `tools/preview_harness.html` with comments naming the affected
+feature.
+
+The active start/goal tool is separate from the disabled robot-footprint feature:
+the arrows visualize query poses only and do not imply that route computation or
+robot footprint sweeping has been re-enabled.
 
 ## 3. Architecture / data flow
 
@@ -63,15 +85,16 @@ Z-up), so nothing is transformed at runtime.
                           \                                        /
                            v                                      v
                          static/js/explorer.js  (Three.js GLTFLoader + MeshoptDecoder,
-                          instanced safe/restricted field, polygon overlay,
-                          lattice-A* directional planner)
+                          instanced safe/restricted field, polygon overlay;
+                          legacy span-cell planner commented out)
 ```
 
 `field.bin` is a flat little-endian array of `[float32 x, y, z, uint32 mask]` per
 walkable surface cell; the low `yawBits` (=20) bits of `mask` are the feasible
 headings over `[0, pi)` (the cuboid footprint is 180-deg symmetric, so heading `L`
 and `L+bits` share feasibility). `scene.json` carries agent dims, yaw-layer info,
-bounds, the configured start/goal, and the ASA reference path.
+bounds, the configured start/goal, and the ASA reference path. The current Explorer
+loads this metadata, but the ASA reference display is commented out.
 
 `polyfield.bin` is the final Detour polygon graph, exported directly from
 `dtNavMesh`. `polyfield.json` is its small sidecar with format, coordinate frame,
@@ -91,7 +114,9 @@ neighbor records are intentionally kept for future polygon-level browser plannin
 ## 4. File inventory
 
 **Web app**
-- `static/js/explorer.js` — the viewer + the lattice-A\* planner.
+- `static/js/explorer.js` — the viewer, traversability field, and polygon overlay.
+  The legacy span-cell lattice-A\* planner, route display, robot footprint sweep,
+  and ROS ASA reference display are commented out pending polygon-level ASA.
 - `index.html` (`#explorer` section) + `static/css/index.css` (legend swatches).
 - `static/scenes/index.json` — scene list (`dir`, `id`, `name`, `blurb`).
 - `static/scenes/<dir>/{scene.glb, field.bin, scene.json, polyfield.bin, polyfield.json}` — per-scene assets.
@@ -169,9 +194,15 @@ Add a new scene:
 - Blender exports with `export_yup=False` (keeps Z-up), and Three.js renders with
   `camera.up=(0,0,1)`, so the glb and field overlay with **no runtime transform**.
 
-## 7. The planner
+## 7. Disabled legacy planner
 
-Lattice A\* over nodes `(cell, headingLayer)`, `headingLayer in [0, 2*bits)`:
+The following span-cell planner is no longer active in the Explorer. Its code is
+commented out in `static/js/explorer.js` under **Disabled feature: Planned path**
+comments. It is kept only as implementation history and as a reference while the
+browser planner is rebuilt on `polyfield.bin`.
+
+The legacy planner used lattice A\* over nodes `(cell, headingLayer)`,
+`headingLayer in [0, 2*bits)`:
 
 - **Rotate in place**: `(c,L) -> (c,L±1)` if cell `c` is feasible at `L±1`.
 - **Translate, optionally turning ±1 layer while stepping**: from a feasible `(c,L)`
@@ -195,7 +226,9 @@ admissible.
 
 The traversability carpet is drawn as a **binary safe/restricted** field (safe = fits
 at every heading, restricted = fits at only some); the exporter drops cells feasible
-at no heading, so there is no third "blocked" state and no heading slider.
+at no heading, so there is no third "blocked" state and no heading slider. The
+checkbox is unchecked by default, and `explorer.js` applies that checkbox state after
+each scene load so the field remains hidden until explicitly enabled.
 
 The `SE(2) NavMesh` checkbox displays the final polygon graph from `polyfield.bin`.
 It is checked by default, and `explorer.js` applies the checkbox state directly when
@@ -203,18 +236,19 @@ each scene finishes loading, so the polygon overlay appears on first load as wel
 after scene changes. Polygon faces are always semi-transparent blue; the display does
 not color polygons by yaw mask.
 
-This is **faithful to the SE(2) representation** (it plans on the real exported field
-with the paper's cost terms) but is an **approximation of the full C++ ASA pipeline**
-(A\*–string-pulling–A\*), not bit-identical. The UI says so.
+The currently displayed Explorer therefore does **not** compute or display a path,
+does **not** animate the robot footprint, and does **not** draw the ROS ASA reference
+path. The old UI controls and JavaScript hooks for those features are commented out
+with feature-specific labels.
 
 ## 8. Known limitations / future ideas
 
 - **Textures** are JPEG at 512 px (the ~2.5 MB floor per scene). KTX2/Basis (build
   gltfpack with basisu, add `KTX2Loader` + transcoder) would roughly halve size and
   sharpen them.
-- **Planner fidelity** — porting the real ASA (string pulling + yaw refinement) to JS,
-  or using the exported Detour polygon graph for browser-side planning, would match
-  the paper more closely.
+- **Planner fidelity** — the next active planner should use the exported Detour
+  polygon graph for browser-side polygon-level ASA. The old span-cell planner is
+  commented out because it does not match that target.
 - **Cell rendering** is one `InstancedMesh` of quads; fine to ~15 k cells. Larger
   scenes may want a merged colored mesh.
 - Start/goal snapping is a brute-force nearest-cell scan (fine at <16 k cells).

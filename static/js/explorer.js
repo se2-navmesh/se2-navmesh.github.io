@@ -15,9 +15,9 @@
  *   - colors the field by traversability: safe (fits at every heading) vs
  *     restricted (fits at only some) -> makes yaw-dependent traversability
  *     tangible;
- *   - click a start and a goal and a yaw-aware path is planned in-browser by
- *     lattice A* over (cell, heading), with a directional (lateral > forward)
- *     cost so the robot prefers to face the way it travels.
+ *   - Planned path, robot footprint sweep, and ASA reference display are
+ *     currently commented out because the Explorer target is polygon-level ASA
+ *     over `polyfield.bin`, not the older span-cell lattice planner.
  */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -35,8 +35,8 @@ const COL = {
   ref: 0x8aa0c8,
   navmesh: new THREE.Color(0x6db8f2),
   navmeshEdge: 0xd7ebff,
-  start: 0x2bb673,
-  goal: 0xff5b45,
+  start: 0x00d85a,
+  goal: 0xff1f2d,
   robot: 0x33d6c0,
 };
 
@@ -69,8 +69,9 @@ async function boot() {
 
   // ── per-scene state (rebuilt on scene change) ───────────────────
   let S = null; // active scene bundle
-  let pick = "start";          // which endpoint the next canvas click sets
+  let armedPoseTool = null;    // one-shot target for the next left-drag pose edit
   let startPt = null, goalPt = null;
+  let poseDrag = null;
 
   // ── scene selector ──────────────────────────────────────────────
   const scenes = await fetch(SCENES_URL).then((r) => r.json());
@@ -151,24 +152,32 @@ async function boot() {
     const polyGraph = polyMeta && polyBuf ? buildPolyOverlay(parsePolyField(polyBuf, polyMeta)) : null;
     if (polyGraph) group.add(polyGraph.group);
 
-    // planning graph over the field
-    const planner = buildPlanner(field, scene);
+    // Disabled feature: Planned path.
+    // The span-cell lattice planner is kept below as commented reference until
+    // the Explorer moves to the intended polygon-level ASA planner.
+    // const planner = buildPlanner(field, scene);
 
-    // path + robot + markers containers
-    const pathGroup = new THREE.Group();
-    const refGroup = new THREE.Group();
+    // Disabled feature: Planned path.
+    // const pathGroup = new THREE.Group();
+    // Disabled feature: ASA reference (ROS).
+    // const refGroup = new THREE.Group();
     const markers = new THREE.Group();
-    const robot = buildRobot(scene.agent);
-    group.add(pathGroup, refGroup, markers, robot);
+    // Disabled feature: Robot footprint.
+    // const robot = buildRobot(scene.agent);
+    group.add(markers);
+    // Disabled feature: Planned path / ASA reference (ROS) / Robot footprint.
+    // group.add(pathGroup, refGroup, markers, robot);
 
-    // reference (ROS ASA) path, faint
-    if (scene.referencePath && scene.referencePath.length > 1) {
-      refGroup.add(polyline(scene.referencePath.map((p) => [p.x, p.y, p.z + 0.05]),
-        COL.ref, 0.025, 0.5));
-    }
+    // Disabled feature: ASA reference (ROS).
+    // if (scene.referencePath && scene.referencePath.length > 1) {
+    //   refGroup.add(polyline(scene.referencePath.map((p) => [p.x, p.y, p.z + 0.05]),
+    //     COL.ref, 0.025, 0.5));
+    // }
 
-    S = { meta, scene, field, cells, polyGraph, planner, group, env, rayTargets,
-          pathGroup, refGroup, markers, robot, route: null, t: 0, playing: false };
+    S = { meta, scene, field, cells, polyGraph, group, env, rayTargets, markers };
+    // Disabled feature: Planned path / ASA reference (ROS) / Robot footprint.
+    // S = { meta, scene, field, cells, polyGraph, planner, group, env, rayTargets,
+    //       pathGroup, refGroup, markers, robot, route: null, t: 0, playing: false };
 
     // camera framing
     const b = scene.field.bounds;
@@ -351,9 +360,19 @@ async function boot() {
     mesh.instanceColor.needsUpdate = true;
     $("stat-cells").textContent = f.n.toLocaleString();
     $("stat-restricted").textContent = nRestricted.toLocaleString();
-    if (S.robot && !S.route) orientRobot();
+    // Disabled feature: Robot footprint.
+    // if (S.robot && !S.route) orientRobot();
   }
 
+  /*
+   * Disabled feature: Planned path.
+   *
+   * The previous live route used a span-cell lattice A* over `field.bin`.
+   * That does not match the Explorer's current target: planning should use the
+   * exported Detour polygon graph and mirror `se2_navmesh_static`'s ASA
+   * query semantics. Keep the old implementation commented for reference while
+   * the polygon-level planner is rebuilt.
+   *
   // ── planner: lattice A* over (cell, heading) ────────────────────
   function buildPlanner(field, scene) {
     const cs = field.cellSize, climb = scene.agent.maxClimb || 0.25;
@@ -483,31 +502,37 @@ async function boot() {
     seq.reverse();
     return seq;
   }
+   */
 
-  // ── query (start/goal) + planning ───────────────────────────────
+  // ── query (start/goal markers only) ─────────────────────────────
   function setQuery(start, goal) {
-    startPt = { x: start.x, y: start.y, z: start.z, layer: start.layer };
-    goalPt = { x: goal.x, y: goal.y, z: goal.z };
-    pick = "start";
+    startPt = poseFromScenePoint(start, 0);
+    goalPt = poseFromScenePoint(goal, 0);
+    disarmPoseTool("Showing the configured query. Click Set Start or Set Goal, then left-drag on the scene to set a pose.");
     replan();
   }
 
   function replan() {
-    const f = S.field;
     S.markers.clear();
-    if (startPt) S.markers.add(marker(startPt, COL.start));
-    if (goalPt) S.markers.add(marker(goalPt, COL.goal));
+    if (startPt) S.markers.add(poseArrow(startPt, COL.start));
+    if (goalPt) S.markers.add(poseArrow(goalPt, COL.goal));
 
-    if (!startPt || !goalPt) { drawRoute(null); return; }
-    const sc = nearestCell(f, startPt.x, startPt.y, startPt.z);
-    const gc = nearestCell(f, goalPt.x, goalPt.y, goalPt.z);
-    // start heading: configured layer maps onto [0,2pi); snap to feasible
-    const wantL = ((startPt.layer ? startPt.layer - 1 : 0) % f.nLayers + f.nLayers) % f.nLayers;
-    const sL = nearestFeasibleLayer(f, sc, wantL);
-    const route = plan(sc, sL, gc);
-    drawRoute(route);
+    // Disabled feature: Planned path.
+    // if (!startPt || !goalPt) { drawRoute(null); return; }
+    // const sc = nearestCell(f, startPt.x, startPt.y, startPt.z);
+    // const gc = nearestCell(f, goalPt.x, goalPt.y, goalPt.z);
+    // // start heading: configured layer maps onto [0,2pi); snap to feasible
+    // const wantL = ((startPt.layer ? startPt.layer - 1 : 0) % f.nLayers + f.nLayers) % f.nLayers;
+    // const sL = nearestFeasibleLayer(f, sc, wantL);
+    // const route = plan(sc, sL, gc);
+    // drawRoute(route);
   }
 
+  /*
+   * Disabled feature: Planned path.
+   *
+   * Path drawing and route stats are disabled with the span-cell planner.
+   *
   function drawRoute(route) {
     S.pathGroup.clear();
     S.route = route;
@@ -546,7 +571,13 @@ async function boot() {
       " m lat · " + (turn*180/Math.PI).toFixed(0) + "° turn";
     S.t = 0; $("route").value = "0"; setRobotAt(0);
   }
+   */
 
+  /*
+   * Disabled feature: Robot footprint.
+   *
+   * The footprint sweep depended on the disabled planned path.
+   *
   // ── robot footprint along route ─────────────────────────────────
   function setRobotAt(t) {
     if (!S || !S.robot) return;
@@ -567,52 +598,131 @@ async function boot() {
     S.robot.position.set(f.px[c], f.py[c], f.pz[c] + 0.04);
     S.robot.rotation.set(0, 0, (L < 0 ? wantL : L) * f.yawStep);
   }
+   */
 
-  // ── interaction: click to set start / goal ──────────────────────
+  // ── interaction: RViz-style pose tool for start / goal ──────────
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
-  let dragged = false;
-  renderer.domElement.addEventListener("pointerdown", () => { dragged = false; });
-  renderer.domElement.addEventListener("pointermove", () => { dragged = true; });
+  const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  const dragHit = new THREE.Vector3();
+  renderer.domElement.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !S || !armedPoseTool) return;
+    const hit = pickScenePoint(e);
+    if (!hit) return;
+    e.preventDefault();
+    renderer.domElement.setPointerCapture(e.pointerId);
+    controls.enabled = false;
+    dragPlane.set(new THREE.Vector3(0, 0, 1), -hit.point.z);
+    const yaw = currentToolPoseYaw();
+    poseDrag = { pointerId: e.pointerId, target: armedPoseTool, point: hit.point.clone(), yaw };
+    setDraftPose(yaw);
+  });
+  renderer.domElement.addEventListener("pointermove", (e) => {
+    if (!poseDrag || e.pointerId !== poseDrag.pointerId) return;
+    e.preventDefault();
+    const p = pointOnDragPlane(e);
+    if (!p) return;
+    const dx = p.x - poseDrag.point.x, dy = p.y - poseDrag.point.y;
+    if (Math.hypot(dx, dy) > 1e-4) poseDrag.yaw = Math.atan2(dy, dx);
+    setDraftPose(poseDrag.yaw);
+  });
   renderer.domElement.addEventListener("pointerup", (e) => {
-    if (dragged || !S) return;
+    if (!poseDrag || e.pointerId !== poseDrag.pointerId) return;
+    e.preventDefault();
+    const p = pointOnDragPlane(e);
+    if (p) {
+      const dx = p.x - poseDrag.point.x, dy = p.y - poseDrag.point.y;
+      if (Math.hypot(dx, dy) > 1e-4) poseDrag.yaw = Math.atan2(dy, dx);
+    }
+    const pose = {
+      x: poseDrag.point.x,
+      y: poseDrag.point.y,
+      z: poseDrag.point.z,
+      yaw: normalizeYaw(poseDrag.yaw),
+    };
+    pose.layer = yawToLayer(pose.yaw);
+    const target = poseDrag.target;
+    if (target === "start") startPt = pose;
+    else goalPt = pose;
+    poseDrag = null;
+    controls.enabled = true;
+    renderer.domElement.releasePointerCapture(e.pointerId);
+    replan();
+    disarmPoseTool((target === "start" ? "Start" : "Goal") + " pose set. Click Set Start or Set Goal to edit another pose.");
+  });
+  renderer.domElement.addEventListener("pointercancel", (e) => {
+    if (!poseDrag || e.pointerId !== poseDrag.pointerId) return;
+    poseDrag = null;
+    controls.enabled = true;
+    if (renderer.domElement.hasPointerCapture(e.pointerId)) {
+      renderer.domElement.releasePointerCapture(e.pointerId);
+    }
+    disarmPoseTool("Pose edit cancelled. Click Set Start or Set Goal to try again.");
+  });
+
+  function pickScenePoint(e) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     ray.setFromCamera(ndc, camera);
-    const hit = ray.intersectObjects(S.rayTargets, true)[0];
-    if (!hit) return;
-    const p = hit.point;
-    if (pick === "start") { startPt = { x: p.x, y: p.y, z: p.z, layer: 1 }; pick = "goal"; setHint("Click to place the goal."); }
-    else { goalPt = { x: p.x, y: p.y, z: p.z }; pick = "start"; setHint("Click to set a new start."); }
+    return ray.intersectObjects(S.rayTargets, true)[0] || null;
+  }
+
+  function pointOnDragPlane(e) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    ray.setFromCamera(ndc, camera);
+    return ray.ray.intersectPlane(dragPlane, dragHit) ? dragHit : null;
+  }
+
+  function setDraftPose(yaw) {
+    const pose = {
+      x: poseDrag.point.x,
+      y: poseDrag.point.y,
+      z: poseDrag.point.z,
+      yaw: normalizeYaw(yaw),
+    };
+    pose.layer = yawToLayer(pose.yaw);
+    if (poseDrag.target === "start") startPt = pose;
+    else goalPt = pose;
     replan();
-  });
+  }
 
   // ── UI wiring ───────────────────────────────────────────────────
-  $("route").addEventListener("input", (e) => {
-    S.playing = false; $("play").textContent = "Play route";
-    S.t = Number(e.target.value) / 1000; setRobotAt(S.t);
-  });
-  $("play").addEventListener("click", () => {
-    if (!S.route) return;
-    S.playing = !S.playing; $("play").textContent = S.playing ? "Pause" : "Play route";
-  });
+  // Disabled feature: Planned path / Robot footprint.
+  // $("route").addEventListener("input", (e) => {
+  //   S.playing = false; $("play").textContent = "Play route";
+  //   S.t = Number(e.target.value) / 1000; setRobotAt(S.t);
+  // });
+  // $("play").addEventListener("click", () => {
+  //   if (!S.route) return;
+  //   S.playing = !S.playing; $("play").textContent = S.playing ? "Pause" : "Play route";
+  // });
   $("reset-view").addEventListener("click", frameView);
-  $("reset-query").addEventListener("click", () => { setQuery(S.scene.start, S.scene.goal); setHint("Showing the configured query. Click the scene to set your own."); });
+  $("reset-query").addEventListener("click", () => { setQuery(S.scene.start, S.scene.goal); });
+  $("pose-tool-start").addEventListener("click", () => armPoseTool("start"));
+  $("pose-tool-goal").addEventListener("click", () => armPoseTool("goal"));
 
   bindToggle("toggle-mesh", () => S.env);
   bindToggle("toggle-cells", () => S.cells.mesh);
   bindToggle("toggle-polys", () => S.polyGraph ? S.polyGraph.group : null);
-  bindToggle("toggle-path", () => S.pathGroup);
-  bindToggle("toggle-robot", () => S.robot);
-  bindToggle("toggle-ref", () => S.refGroup);
+  // Disabled feature: Planned path.
+  // bindToggle("toggle-path", () => S.pathGroup);
+  // Disabled feature: Robot footprint.
+  // bindToggle("toggle-robot", () => S.robot);
+  // Disabled feature: ASA reference (ROS).
+  // bindToggle("toggle-ref", () => S.refGroup);
   function applyToggles() {
     setToggleVisible("toggle-mesh", () => S.env);
     setToggleVisible("toggle-cells", () => S.cells.mesh);
     setToggleVisible("toggle-polys", () => S.polyGraph ? S.polyGraph.group : null);
-    setToggleVisible("toggle-path", () => S.pathGroup);
-    setToggleVisible("toggle-robot", () => S.robot);
-    setToggleVisible("toggle-ref", () => S.refGroup);
+    // Disabled feature: Planned path.
+    // setToggleVisible("toggle-path", () => S.pathGroup);
+    // Disabled feature: Robot footprint.
+    // setToggleVisible("toggle-robot", () => S.robot);
+    // Disabled feature: ASA reference (ROS).
+    // setToggleVisible("toggle-ref", () => S.refGroup);
   }
   function bindToggle(id, get) {
     const cb = $(id); if (!cb) return;
@@ -621,6 +731,39 @@ async function boot() {
   function setToggleVisible(id, get) {
     const cb = $(id), o = get();
     if (cb && o) o.visible = cb.checked;
+  }
+
+  function armPoseTool(target) {
+    if (armedPoseTool === target) {
+      disarmPoseTool((target === "start" ? "Set Start" : "Set Goal") + " cancelled. Click Set Start or Set Goal to arm a pose edit.");
+      return;
+    }
+
+    armedPoseTool = target;
+    const start = $("pose-tool-start"), goal = $("pose-tool-goal");
+    if (start) {
+      start.classList.toggle("is-armed", target === "start");
+      start.textContent = target === "start" ? "Setting Start..." : "Set Start";
+    }
+    if (goal) {
+      goal.classList.toggle("is-armed", target === "goal");
+      goal.textContent = target === "goal" ? "Setting Goal..." : "Set Goal";
+    }
+    setHint((target === "start" ? "Set Start" : "Set Goal") + " armed. Left-drag once on the scene to set position and yaw, or click the button again to cancel.");
+  }
+
+  function disarmPoseTool(message) {
+    armedPoseTool = null;
+    const start = $("pose-tool-start"), goal = $("pose-tool-goal");
+    if (start) {
+      start.classList.remove("is-armed");
+      start.textContent = "Set Start";
+    }
+    if (goal) {
+      goal.classList.remove("is-armed");
+      goal.textContent = "Set Goal";
+    }
+    if (message) setHint(message);
   }
 
   function frameView() {
@@ -640,10 +783,11 @@ async function boot() {
   window.addEventListener("resize", resize); resize();
 
   function tick() {
-    if (S && S.playing && S.route) {
-      S.t += 0.004; if (S.t > 1) S.t = 0;
-      $("route").value = String(Math.round(S.t * 1000)); setRobotAt(S.t);
-    }
+    // Disabled feature: Planned path / Robot footprint.
+    // if (S && S.playing && S.route) {
+    //   S.t += 0.004; if (S.t > 1) S.t = 0;
+    //   $("route").value = String(Math.round(S.t * 1000)); setRobotAt(S.t);
+    // }
     controls.update();
     renderer.render(world, camera);
     requestAnimationFrame(tick);
@@ -651,12 +795,63 @@ async function boot() {
   tick();
 
   // ── small helpers ───────────────────────────────────────────────
-  function marker(p, color) {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.13, 18, 14),
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.4 }));
-    m.position.set(p.x, p.y, p.z + 0.13); m.renderOrder = 4;
-    return m;
+  function poseArrow(p, color) {
+    const len = Math.max(0.55, Math.min(1.0, (S.scene.agent.length || 0.8) * 0.9));
+    const yaw = p.yaw || 0;
+    const zOffset = (S.scene.agent.height || 0.32) * 0.5;
+    const base = new THREE.Vector3(p.x, p.y, p.z + zOffset);
+    const headLen = len * 0.3;
+    const shaftLen = len - headLen;
+    const shaftRadius = Math.max(0.035, len * 0.045);
+    const headRadius = Math.max(0.095, len * 0.12);
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.18,
+      roughness: 0.38,
+      metalness: 0.0,
+      depthWrite: false,
+    });
+
+    const g = new THREE.Group();
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftLen, 18), mat);
+    shaft.rotation.z = -Math.PI / 2;
+    shaft.position.set(shaftLen * 0.5, 0, 0);
+
+    const head = new THREE.Mesh(new THREE.ConeGeometry(headRadius, headLen, 24), mat);
+    head.rotation.z = -Math.PI / 2;
+    head.position.set(shaftLen + headLen * 0.5, 0, 0);
+
+    g.position.copy(base);
+    g.rotation.z = yaw;
+    g.add(shaft, head);
+    g.renderOrder = 5;
+    return g;
   }
+
+  function poseFromScenePoint(p, fallbackYaw) {
+    const yaw = p.yaw !== undefined ? p.yaw :
+      (p.layer !== undefined ? (p.layer - 1) * S.field.yawStep : fallbackYaw);
+    return { x: p.x, y: p.y, z: p.z, yaw: normalizeYaw(yaw), layer: p.layer || yawToLayer(yaw) };
+  }
+
+  function currentToolPoseYaw() {
+    const p = armedPoseTool === "start" ? startPt : goalPt;
+    return p && p.yaw !== undefined ? p.yaw : 0;
+  }
+
+  function normalizeYaw(yaw) {
+    const tau = 2 * Math.PI;
+    return ((yaw % tau) + tau) % tau;
+  }
+
+  function yawToLayer(yaw) {
+    if (!S || !S.field || !S.field.yawStep) return 1;
+    return Math.round(normalizeYaw(yaw) / S.field.yawStep) % S.field.nLayers + 1;
+  }
+  /*
+   * Disabled feature: Robot footprint.
+   *
   function buildRobot(agent) {
     const g = new THREE.Group();
     const box = new THREE.BoxGeometry(agent.length, agent.width, 0.14);
@@ -670,6 +865,10 @@ async function boot() {
     g.add(cone); g.renderOrder = 5;
     return g;
   }
+   */
+  /*
+   * Disabled feature: Planned path / ASA reference (ROS).
+   *
   function polyline(pts, color, radius, opacity, emissive) {
     const v = pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
     const curve = new THREE.CatmullRomCurve3(v, false, "catmullrom", 0.2);
@@ -678,6 +877,7 @@ async function boot() {
       color, roughness: 0.4, transparent: opacity < 1, opacity,
       emissive: emissive ? color : 0x000000, emissiveIntensity: emissive ? 0.5 : 0 }));
   }
+   */
   function setHint(t) { const e = $("query-hint"); if (e) e.textContent = t; }
   function setLoading(t) {
     const e = $("viewer-loading"); if (!e) return;

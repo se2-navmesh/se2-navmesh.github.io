@@ -263,6 +263,37 @@ code {
   accent-color: #13866f;
 }
 
+.pose-tool-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+.pose-tool-option {
+  min-height: 34px;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #344054;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pose-tool-option.start.is-armed {
+  border-color: #00d85a;
+  color: #087443;
+  box-shadow: 0 0 0 2px rgba(0, 216, 90, 0.18);
+}
+
+.pose-tool-option.goal.is-armed {
+  border-color: #ff1f2d;
+  color: #b42318;
+  box-shadow: 0 0 0 2px rgba(255, 31, 45, 0.18);
+}
+
 .viewer-buttons {
   margin-bottom: 1rem;
 }
@@ -825,7 +856,8 @@ mjx-container {
   border-radius: 3px;
   vertical-align: middle;
 }
-.legend-swatch.start { background: #2bb673; }
+.legend-swatch.start { background: #00d85a; }
+.legend-swatch.goal { background: #ff1f2d; }
 .legend-swatch.path { background: #ff6a4d; }
 .legend-swatch.navmesh { background: #6db8f2; }
 .legend-swatch.used-navmesh { background: #ffce4d; }

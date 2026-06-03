@@ -30,31 +30,49 @@
     <div class="viewer-panel">
       <div class="viewer-canvas-wrap">
         <canvas id="viewer"></canvas>
-        <div class="viewer-help">drag to orbit · click to set start/goal</div>
+        <div class="viewer-help">click Set Start/Goal, left-drag once to set pose, click again to cancel</div>
         <div id="viewer-loading" class="viewer-loading">Loading 3D scene…</div>
       </div>
       <aside class="viewer-controls">
         <label class="viewer-label" for="scene-select">Scene</label>
         <div class="select is-small is-fullwidth"><select id="scene-select"></select></div>
         <p id="query-hint" class="viewer-note">hint</p>
+        <label class="viewer-label">Pose tool</label>
+        <div class="pose-tool-controls" aria-label="Pose tool target">
+          <button id="pose-tool-start" class="pose-tool-option start" type="button">Set Start</button>
+          <button id="pose-tool-goal" class="pose-tool-option goal" type="button">Set Goal</button>
+        </div>
         <div class="viewer-stats">
           <div><span>Field cells</span><strong id="stat-cells">&ndash;</strong></div>
           <div><span>Restricted cells</span><strong id="stat-restricted">&ndash;</strong></div>
+          <!-- Disabled feature: Planned path.
           <div><span>Path length</span><strong id="stat-len">&ndash;</strong></div>
           <div><span>Path breakdown</span><strong id="stat-cost">&ndash;</strong></div>
+          -->
         </div>
+        <!-- Disabled feature: Robot footprint.
         <input id="route" type="range" min="0" max="1000" value="0" step="1">
+        -->
         <div class="buttons are-small">
+          <!-- Disabled feature: Planned path / Robot footprint.
           <button id="play" type="button">Play route</button>
+          -->
           <button id="reset-query" type="button">Reset query</button>
           <button id="reset-view" type="button">Reset view</button>
         </div>
         <div class="viewer-toggles">
-          <label class="checkbox"><input id="toggle-mesh" type="checkbox" checked> mesh</label>
-          <label class="checkbox"><input id="toggle-cells" type="checkbox" checked> cells</label>
-          <label class="checkbox"><input id="toggle-path" type="checkbox" checked> path</label>
-          <label class="checkbox"><input id="toggle-robot" type="checkbox" checked> robot</label>
-          <label class="checkbox"><input id="toggle-ref" type="checkbox"> ref</label>
+          <label class="checkbox"><input id="toggle-mesh" type="checkbox" checked> Scene mesh</label>
+          <label class="checkbox"><input id="toggle-cells" type="checkbox"> Traversability field</label>
+          <label class="checkbox"><input id="toggle-polys" type="checkbox" checked> SE(2) NavMesh</label>
+          <!-- Disabled feature: Planned path.
+          <label class="checkbox"><input id="toggle-path" type="checkbox" checked> Planned path</label>
+          -->
+          <!-- Disabled feature: Robot footprint.
+          <label class="checkbox"><input id="toggle-robot" type="checkbox" checked> Robot footprint</label>
+          -->
+          <!-- Disabled feature: ASA reference (ROS).
+          <label class="checkbox"><input id="toggle-ref" type="checkbox"> ASA reference (ROS)</label>
+          -->
         </div>
       </aside>
     </div>
