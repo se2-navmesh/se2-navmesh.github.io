@@ -1,0 +1,29 @@
+{
+  "format": "se2-poly-field-v1",
+  "binary": "polyfield.bin",
+  "coordFrame": "ros",
+  "recordEndian": "little",
+  "magic": "SE2POLY1",
+  "version": 1,
+  "polyRefBytes": 4,
+  "yawBits": 20,
+  "yawStepRad": 0.15708,
+  "cellSize": 0.1,
+  "counts": {
+    "vertices": 19133,
+    "polygons": 5055,
+    "indices": 19133,
+    "neighbors": 17372
+  },
+  "bounds": {
+    "min": [-14.0857, -4.73724, 0.066619],
+    "max": [13.5143, 15.2628, 0.966619]
+  },
+  "sections": [
+    "header: char[8] magic; u32 version, polyRefBytes, yawBits, vertexCount, polygonCount, indexCount, neighborCount; f32 yawStepRad, cellSize",
+    "vertices: vertexCount * f32 x,y,z",
+    "polygons: polygonCount * u64 ref; u32 firstVert, vertCount, firstNeighbor, neighborCount, mask; u16 area, flags; i32 tile, tilePoly; f32 centerX, centerY, centerZ",
+    "indices: indexCount * u32 vertexIndex",
+    "neighbors: neighborCount * u32 poly; u64 ref; u32 edge; f32 portalAx, portalAy, portalAz, portalBx, portalBy, portalBz"
+  ]
+}

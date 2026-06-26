@@ -1,0 +1,42 @@
+{
+  "id": "scene",
+  "field": {
+    "file": "field.bin",
+    "record": "f32 x,y,z; u32 mask",
+    "cellCount": 15378,
+    "cellSize": 0.1,
+    "yawBits": 20,
+    "yawStepRad": 0.15707963267948966,
+    "bounds": {
+      "min": [
+        -14.369,
+        -7.7,
+        -0.256
+      ],
+      "max": [
+        16.831,
+        2.6,
+        1.044
+      ]
+    }
+  },
+  "agent": {
+    "length": 0.93,
+    "width": 0.53,
+    "height": 0.89,
+    "maxClimb": 0.25,
+    "maxSlopeDeg": 30.0
+  },
+  "start": {
+    "x": 11.336187,
+    "y": -6.067692,
+    "z": -0.006727,
+    "layer": 4
+  },
+  "goal": {
+    "x": 1.947659,
+    "y": -3.279814,
+    "z": 0.098971,
+    "layer": 16
+  }
+}

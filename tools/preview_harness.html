@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SE(2) Explorer — preview harness</title>
+  <!-- base = repo root so ./static/... resolves when served from /tools/ -->
+  <base href="../">
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="./static/js/explorer.js"></script>
+  <style>body{padding:1rem;background:#fff}</style>
+</head>
+<body>
+<!--
+  Minimal, explorer-only page for quick single-scene testing and screenshots.
+  Open ?scene=<dir>  e.g.  /tools/preview_harness.html?scene=00473
+  Mirrors the #explorer markup/ids in index.html exactly.
+-->
+<section id="explorer" class="section">
+  <div class="container is-max-widescreen">
+    <div class="viewer-panel">
+      <div class="viewer-canvas-wrap">
+        <canvas id="viewer" aria-label="Interactive SE(2) NavMesh explorer"></canvas>
+        <div class="viewer-help">Click Set Start/Goal, then left-drag once to set pose &middot; click again to cancel &middot; drag to orbit</div>
+        <div id="viewer-loading" class="viewer-loading">Loading 3D scene…</div>
+      </div>
+      <aside class="viewer-controls">
+        <label class="viewer-label" for="scene-select">Scene</label>
+        <div class="select is-small is-fullwidth"><select id="scene-select"></select></div>
+        <p id="query-hint" class="viewer-note">hint</p>
+        <label class="viewer-label">Pose tool</label>
+        <div class="pose-tool-controls" aria-label="Pose tool target">
+          <button id="pose-tool-start" class="pose-tool-option start" type="button">Set Start</button>
+          <button id="pose-tool-goal" class="pose-tool-option goal" type="button">Set Goal</button>
+        </div>
+        <div class="viewer-stats">
+          <div><span>Field cells</span><strong id="stat-cells">&ndash;</strong></div>
+          <div><span>Restricted cells</span><strong id="stat-restricted">&ndash;</strong></div>
+          <div><span>Path length</span><strong id="stat-len">&ndash;</strong></div>
+          <div><span>Path breakdown</span><strong id="stat-cost">&ndash;</strong></div>
+        </div>
+
+        <label class="viewer-label" for="route">Robot position along route</label>
+        <div class="route-control">
+          <input id="route" class="slider is-fullwidth is-success" type="range" min="0" max="1000" value="0" step="1">
+          <button id="play-rate" class="button is-small route-speed" type="button">1x</button>
+        </div>
+
+        <div class="buttons are-small viewer-buttons">
+          <button id="play" class="button is-dark" type="button">Play route</button>
+          <button id="reset-query" class="button" type="button">Reset query</button>
+          <button id="reset-view" class="button" type="button">Reset view</button>
+        </div>
+        <div class="viewer-toggles">
+          <label class="checkbox"><input id="toggle-mesh" type="checkbox" checked> Scene mesh</label>
+          <label class="checkbox"><input id="toggle-cells" type="checkbox"> Traversability field</label>
+          <label class="checkbox"><input id="toggle-polys" type="checkbox" checked> SE(2) NavMesh</label>
+          <label class="checkbox"><input id="toggle-path" type="checkbox" checked> Planned path</label>
+          <label class="checkbox"><input id="toggle-robot" type="checkbox" checked> Robot footprint</label>
+        </div>
+        <div class="viewer-asa">
+          <label class="viewer-label">ASA pipeline</label>
+          <div id="asa-stage-controls" class="asa-stepper" role="tablist" aria-label="ASA pipeline stages">
+            <button class="asa-step-btn" type="button" data-asa-stage="0"><span class="asa-step-num">1</span> Initial Search</button>
+            <button class="asa-step-btn" type="button" data-asa-stage="1"><span class="asa-step-num">2</span> Path Straightening</button>
+            <button class="asa-step-btn" type="button" data-asa-stage="2"><span class="asa-step-num">3</span> Yaw Refinement</button>
+          </div>
+          <p id="asa-caption" class="viewer-asa-caption"></p>
+          <div id="asa-stats" class="asa-stats"></div>
+        </div>
+        <div class="viewer-legend">
+          <div><span class="legend-swatch safe"></span>Safe &mdash; fits at every heading</div>
+          <div><span class="legend-swatch restricted"></span>Restricted &mdash; only some headings fit</div>
+          <div><span class="legend-swatch navmesh"></span>SE(2) NavMesh polygon</div>
+          <div><span class="legend-swatch path"></span>Planned path</div>
+          <div><span class="legend-swatch start"></span>Start arrow</div>
+          <div><span class="legend-swatch goal"></span>Goal arrow</div>
+        </div>
+        <p class="viewer-note">The span field remains an explanatory traversability overlay; route computation uses
+          the exported polygon graph and exact start/goal yaw layers.</p>
+        <pre id="plan-debug-json" hidden></pre>
+      </aside>
+    </div>
+  </div>
+</section>
+</body>
+</html>
