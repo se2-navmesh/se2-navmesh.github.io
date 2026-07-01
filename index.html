@@ -571,8 +571,7 @@
           <p>
             We compare ASA against sampling-based planners (RRT, RRT*, PRM) using both a voxel checker and an
             SE(2)-NavMesh checker (suffix <code>-SE2NM</code>). On 100 randomly sampled start&ndash;goal pairs in
-            two representative scenes, ASA achieves the highest success rate (SR) and success-weighted inverse path
-            cost (SPC).
+            two representative scenes, ASA achieves the highest SPC and ties or leads in success rate (SR).
           </p>
         </div>
 
@@ -607,54 +606,51 @@
                 </tr>
                 <tr>
                   <td>RRT-SE2NM</td>
-                  <td class="cell-good">40%</td>
-                  <td class="cell-poor">0.13</td>
-                  <td class="cell-good">97%</td>
-                  <td class="cell-poor">0.29</td>
+                  <td>40%</td>
+                  <td>0.13</td>
+                  <td>97%</td>
+                  <td>0.29</td>
                 </tr>
                 <tr>
                   <td>RRT*-SE2NM</td>
                   <td>32%</td>
-                  <td class="cell-poor">0.18</td>
+                  <td>0.18</td>
                   <td>82%</td>
-                  <td class="cell-poor">0.26</td>
+                  <td>0.26</td>
                 </tr>
                 <tr>
                   <td>PRM-SE2NM</td>
                   <td class="cell-best">41%</td>
-                  <td class="cell-good">0.27</td>
-                  <td class="cell-good">96%</td>
-                  <td class="cell-good">0.63</td>
+                  <td>0.27</td>
+                  <td>96%</td>
+                  <td>0.63</td>
                 </tr>
                 <tr>
                   <td>RRT</td>
                   <td class="cell-best">41%</td>
-                  <td class="cell-poor">0.13</td>
-                  <td class="cell-good">97%</td>
-                  <td class="cell-poor">0.29</td>
+                  <td>0.13</td>
+                  <td>97%</td>
+                  <td>0.29</td>
                 </tr>
                 <tr>
                   <td>RRT*</td>
                   <td>36%</td>
-                  <td class="cell-poor">0.16</td>
+                  <td>0.16</td>
                   <td>80%</td>
-                  <td class="cell-poor">0.25</td>
+                  <td>0.25</td>
                 </tr>
                 <tr>
                   <td>PRM</td>
                   <td>36%</td>
-                  <td class="cell-poor">0.15</td>
+                  <td>0.15</td>
                   <td>84%</td>
-                  <td class="cell-good">0.42</td>
+                  <td>0.42</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <div class="benchmark-legend">
-            <span class="legend-label">SR and SPC on randomly sampled tasks (higher is better).</span>
-            <span class="legend-item cell-best">Best</span>
-            <span class="legend-item cell-good">Good</span>
-            <span class="legend-item cell-poor">Lower</span>
+            <span class="legend-label">Bold values indicate the best result per metric; higher is better.</span>
           </div>
         </div>
 

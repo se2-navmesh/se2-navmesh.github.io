@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 Shuyang Shi
-# Licensed under the BSD 3-Clause License
-#
 # Headless browser validation for the Explorer's browser-side ASA planner.
 #
 # Usage:

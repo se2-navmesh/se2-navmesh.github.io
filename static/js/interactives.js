@@ -223,8 +223,8 @@
     if (!canvas || typeof Chart === "undefined") return;
 
     const planners = ["ASA", "RRT-SE2NM", "RRT*-SE2NM", "PRM-SE2NM", "RRT", "RRT*", "PRM"];
-    const gym = [0.41, 0.27, 0.15, 0.18, 0.13, 0.13, 0.16];
-    const studio = [0.98, 0.63, 0.42, 0.26, 0.29, 0.29, 0.25];
+    const gym = [0.41, 0.13, 0.18, 0.27, 0.13, 0.16, 0.15];
+    const studio = [0.98, 0.29, 0.26, 0.63, 0.29, 0.25, 0.42];
     const highlight = (base, accent) => (c) => planners[c.dataIndex] === "ASA" ? accent : base;
     const legendBaseColors = ["#9ec5d8", "#7fb27e"];
     const isMobile = window.matchMedia("(max-width: 768px)").matches;
